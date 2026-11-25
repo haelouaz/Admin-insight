@@ -30,7 +30,9 @@ function statusOf(t){ if(t==null) return 'n'; const d=(NOW-t)/DAY; return d<=30?
 
 async function load(){
   const dash=tableau.extensions.dashboardContent.dashboard, W=n=>dash.worksheets.find(w=>w.name===n);
-  const [tu,tg,tp] = await Promise.all([readTable(W('Lic_Users')), W('Lic_Groups')?readTable(W('Lic_Groups')):null, W('Lic_Perms')?readTable(W('Lic_Perms')).catch(()=>null):null]);
+  const rd = async n => { const w=W(n); if(!w) return null; try{ return await readTable(w); }catch(e){ console.error('[licences] '+n, e); window.__LIC_ERR=(window.__LIC_ERR||[]).concat(n+' : '+(e&&e.message||e)); return null; } };
+  const [tu,tg,tp] = await Promise.all([rd('Lic_Users'), rd('Lic_Groups'), rd('Lic_Perms')]);
+  if(!tu) throw new Error((window.__LIC_ERR||['Lic_Users illisible']).join(' | '));
   let c=cols(tu);
   const I={email:c('user email'),name:c('friendly name'),role:c('site role'),lt:c('license type'),luid:c('user luid'),login:c('last login'),created:c('creation date'),web:c('web authoring'),desk:c('desktop'),prep:c('prep'),wbp:c('workbook - last publish'),dsp:c('data source - last publish'),view:c('view - last access'),owb:c('(workbooks)'),ods:c('(data sources)'),pwb:c('publish events'),acc:c('access events'),cc:c('allowed creators'),ce:c('allowed explorers'),cv:c('allowed viewers'),ct:c('total allowed')};
   if(I.owb<0) I.owb=c('workbooks'); if(I.ods<0) I.ods=c('data sources)');
