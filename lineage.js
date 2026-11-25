@@ -197,8 +197,10 @@ function select(k, ci){
     // élément choisi depuis le panneau, hors des colonnes affichées : on repart de lui
     if(!columns()[ci].items.some(n=>n.k===k)){ st.path={}; st.path[ci]=k; } }
   st.sel=deepest(); draw(); panel(); focusBar();
-  const el=$('lStage').querySelector('[data-k="'+CSS.escape(k)+'"]'); if(el) el.scrollIntoView({block:'nearest',inline:'nearest'});
-  $('lCanvas').scrollTo({top:0, left:$('lCanvas').scrollLeft});
+  // la colonne choisie se cale à gauche : la colonne suivante (filtrée) est visible sans défiler
+  const el=$('lStage').querySelector('[data-k="'+CSS.escape(k)+'"]'); const cv=$('lCanvas');
+  const x = el ? parseFloat(el.style.left) : 0; const fits = x+2*CW+GAP <= cv.clientWidth;
+  cv.scrollTo({top:0, left: (!st.path[ci] || fits) ? 0 : Math.max(0, x-PADL), behavior:'smooth'});
 }
 /* ---------- formules ---------- */
 function hl(src, n){
