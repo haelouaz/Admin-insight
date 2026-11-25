@@ -28,25 +28,30 @@ const num = x => x==null ? 0 : +x || 0;
 function licOf(role, lt){ const r=low(role)+' '+low(lt); if(r.includes('unlicensed')) return 'Unlicensed'; if(r.includes('creator')) return 'Creator'; if(r.includes('explorer')) return 'Explorer'; if(r.includes('viewer')) return 'Viewer'; return 'Unlicensed'; }
 function statusOf(t){ if(t==null) return 'n'; const d=(NOW-t)/DAY; return d<=30?'a':d<=90?'w':'d'; }
 
+let SUMM={}, ROLES={};
 async function load(){
   const dash=tableau.extensions.dashboardContent.dashboard, W=n=>dash.worksheets.find(w=>w.name===n);
-  const rd = async n => { const w=W(n); if(!w) return null; try{ return await readTable(w); }catch(e){ console.error('[licences] '+n, e); window.__LIC_ERR=(window.__LIC_ERR||[]).concat(n+' : '+(e&&e.message||e)); return null; } };
-  const [tu,tg,tp] = await Promise.all([rd('Lic_Users'), rd('Lic_Groups'), rd('Lic_Perms')]);
-  if(!tu) throw new Error((window.__LIC_ERR||['Lic_Users illisible']).join(' | '));
-  let c=cols(tu);
-  const I={email:c('user email'),name:c('friendly name'),role:c('site role'),lt:c('license type'),luid:c('user luid'),login:c('last login'),created:c('creation date'),web:c('web authoring'),desk:c('desktop'),prep:c('prep'),wbp:c('workbook - last publish'),dsp:c('data source - last publish'),view:c('view - last access'),owb:c('(workbooks)'),ods:c('(data sources)'),pwb:c('publish events'),acc:c('access events'),cc:c('allowed creators'),ce:c('allowed explorers'),cv:c('allowed viewers'),ct:c('total allowed')};
-  if(I.owb<0) I.owb=c('workbooks'); if(I.ods<0) I.ods=c('data sources)');
+  const rd = async n => { const w=W(n); if(!w) return null; try{ return await readTable(w); }catch(e){ console.error('[licences] '+n, e); window.__LIC_ERR=(window.__LIC_ERR||[]).concat(n+' : '+(e&&e.message||JSON.stringify(e))); return null; } };
+  window.__LIC_ERR=[];
+  const [ts,tu,tgs,tg,tp] = await Promise.all([rd('Lic_Summary'), rd('Lic_Users'), rd('Lic_GroupStats'), rd('Lic_Groups'), rd('Lic_Perms')]);
+  if(!ts) throw new Error((window.__LIC_ERR.length?window.__LIC_ERR:['Lic_Summary illisible']).join(' | '));
+  // 1. synthèse : licence × rôle × ancienneté de connexion (tous les utilisateurs du site)
+  let c=cols(ts); const S={lt:c('license type'),role:c('site role'),b:c('connexion'),n:c('user email'),cc:c('allowed creators'),ce:c('allowed explorers'),cv:c('allowed viewers'),ct:c('total allowed')};
+  SUMM={}; ROLES={}; CAP={};
+  ts.data.forEach(r=>{ const role=v(r,S.role)||'', lic=licOf(role, v(r,S.lt)), b=v(r,S.b)||'n', n=num(v(r,S.n));
+    const L=SUMM[lic]||(SUMM[lic]={a:0,w:0,d:0,n:0,total:0}); L[b]=(L[b]||0)+n; L.total+=n; ROLES[role]=(ROLES[role]||0)+n;
+    if(S.cc>=0 && num(v(r,S.cc))) CAP={Creator:num(v(r,S.cc)),Explorer:num(v(r,S.ce)),Viewer:num(v(r,S.cv)),Total:num(v(r,S.ct))}; });
+  // 2. détail : Creators, Explorers et administrateurs
   U=[]; byEmail={};
-  tu.data.forEach(r=>{
-    const email=v(r,I.email); if(!email || byEmail[low(email)]) return;
-    const role=v(r,I.role)||'', lic=licOf(role, v(r,I.lt));
-    const u={email, name:v(r,I.name)||email, role, lic, admin:/administrator/i.test(role), login:toT(v(r,I.login)), created:toT(v(r,I.created)),
-      author:Math.max(...[I.web,I.desk,I.prep,I.wbp,I.dsp].map(i=>toT(v(r,i))||0))||null, web:toT(v(r,I.web)), publish:Math.max(toT(v(r,I.wbp))||0, toT(v(r,I.dsp))||0)||null,
-      owb:num(v(r,I.owb)), ods:num(v(r,I.ods)), groups:[]};
-    u.st=statusOf(u.login); U.push(u); byEmail[low(email)]=u;
-    if(I.cc>=0 && !CAP.Creator){ CAP={Creator:num(v(r,I.cc)),Explorer:num(v(r,I.ce)),Viewer:num(v(r,I.cv)),Total:num(v(r,I.ct))}; }
-  });
-  // recommandations de licence
+  if(tu){ c=cols(tu);
+    const I={email:c('user email'),name:c('friendly name'),role:c('site role'),lt:c('license type'),login:c('last login'),created:c('creation date'),web:c('web authoring'),desk:c('desktop'),prep:c('prep'),wbp:c('workbook - last publish'),dsp:c('data source - last publish'),owb:c('(workbooks)'),ods:c('(data sources)')};
+    tu.data.forEach(r=>{
+      const email=v(r,I.email); if(!email || byEmail[low(email)]) return;
+      const role=v(r,I.role)||'', lic=licOf(role, v(r,I.lt));
+      const u={email, name:v(r,I.name)||email, role, lic, admin:/administrator/i.test(role), login:toT(v(r,I.login)), created:toT(v(r,I.created)),
+        author:Math.max(...[I.web,I.desk,I.prep,I.wbp,I.dsp].map(i=>toT(v(r,i))||0))||null, web:toT(v(r,I.web)), publish:Math.max(toT(v(r,I.wbp))||0, toT(v(r,I.dsp))||0)||null,
+        owb:num(v(r,I.owb)), ods:num(v(r,I.ods)), groups:[]};
+      u.st=statusOf(u.login); U.push(u); byEmail[low(email)]=u; }); }
   U.forEach(u=>{
     const idle90 = t => t==null || (NOW-t)/DAY>90;
     u.rec=null;
@@ -54,22 +59,27 @@ async function load(){
     else if(u.lic==='Creator' && idle90(u.author) && !u.admin) u.rec={k:'down', to:'Explorer', l:'Aucune création (Desktop, Prep, Web Edit, publication) depuis 90 jours : passer en Explorer'};
     else if(u.lic==='Explorer' && idle90(u.web) && idle90(u.publish) && !u.admin) u.rec={k:'down', to:'Viewer', l:'Aucune modification web ni publication depuis 90 jours : une licence Viewer suffit'};
   });
-  // groupes
+  // 3. groupes : effectifs de tous les groupes, appartenance détaillée pour les groupes de taille raisonnable
   GR={};
-  if(tg){ c=cols(tg); const J={g:c('group name'),luid:c('group luid'),e:c('user email'),min:c('minimum site role'),los:c('license on sign')};
-    tg.data.forEach(r=>{ const g=v(r,J.g); if(!g) return; const G=GR[g]||(GR[g]={name:g, luid:v(r,J.luid), min:v(r,J.min), los:String(v(r,J.los))==='true', members:new Set(), perms:{} }); const e=v(r,J.e); if(e){ G.members.add(low(e)); const u=byEmail[low(e)]; if(u && !u.groups.includes(g)) u.groups.push(g); } }); }
+  if(tgs){ c=cols(tgs); const J={g:c('group name'),min:c('minimum site role'),los:c('license on sign'),n:c('user email')};
+    tgs.data.forEach(r=>{ const g=v(r,J.g); if(!g) return; GR[g]={name:g, min:v(r,J.min), los:String(v(r,J.los))==='true', count:num(v(r,J.n)), members:new Set(), detailed:false, perms:{}}; }); }
+  if(tg){ c=cols(tg); const J={g:c('group name'),e:c('user email')};
+    tg.data.forEach(r=>{ const g=v(r,J.g), e=v(r,J.e); if(!g||!e) return; const G=GR[g]||(GR[g]={name:g,count:0,members:new Set(),perms:{}}); G.detailed=true; G.members.add(low(e)); const u=byEmail[low(e)]; if(u && !u.groups.includes(g)) u.groups.push(g); }); }
+  Object.values(GR).forEach(G=>{ if(!G.count) G.count=G.members.size; });
   PERM=[];
   if(tp){ c=cols(tp); const K={g:c('grantee name'),it:c('item name'),il:c('item luid'),top:c('top parent'),cap:c('capability'),val:c('permission value')};
     tp.data.forEach(r=>{ const g=v(r,K.g); if(!g) return; const p={g, item:v(r,K.it), luid:v(r,K.il), top:v(r,K.top)||v(r,K.it), cap:v(r,K.cap), val:v(r,K.val)}; PERM.push(p);
-      const G=GR[g]||(GR[g]={name:g, members:new Set(), perms:{}, noMembership:true}); const P=G.perms[p.item]||(G.perms[p.item]={item:p.item, top:p.top, allow:new Set(), deny:new Set()}); (/deny/i.test(p.val||'')?P.deny:P.allow).add(p.cap); }); }
+      const G=GR[g]||(GR[g]={name:g, count:0, members:new Set(), perms:{}}); const P=G.perms[p.item]||(G.perms[p.item]={item:p.item, top:p.top, allow:new Set(), deny:new Set()}); (/deny/i.test(p.val||'')?P.deny:P.allow).add(p.cap); }); }
 }
 
 /* ---------- rendu commun ---------- */
 const bar = (parts,total) => '<div class="bar">'+parts.filter(p=>p[0]>0).map(p=>'<i style="width:'+(p[0]*100/(total||1))+'%;background:'+p[1]+'" title="'+esc(p[2]||'')+'"></i>').join('')+'</div>';
-const occ = l => U.filter(u=>u.lic===l).length;
+const occ = l => (SUMM[l]&&SUMM[l].total)||0;
+const sumSt = (l,k) => (SUMM[l]&&SUMM[l][k])||0;
+const ALLU = () => Object.values(SUMM).reduce((a,x)=>a+x.total,0);
 function kpis(){
-  const lic=U.filter(u=>u.lic!=='Unlicensed'), idle=lic.filter(u=>u.st==='d'||u.st==='n'), recs=U.filter(u=>u.rec), noGrp=U.filter(u=>!u.groups.filter(g=>!/^all users$/i.test(g)).length);
-  const k=[[fmt(lic.length)+(CAP.Total?' / '+fmt(CAP.Total):''),'Licences occupées'],[fmt(occ('Creator'))+(CAP.Creator?' / '+fmt(CAP.Creator):''),'Creator'],[fmt(occ('Explorer'))+(CAP.Explorer?' / '+fmt(CAP.Explorer):''),'Explorer'],[fmt(occ('Viewer'))+(CAP.Viewer?' / '+fmt(CAP.Viewer):''),'Viewer'],[fmt(idle.length),'Licences inactives > 90 j',true],[fmt(recs.length),'Ajustements proposés',true],[fmt(Object.keys(GR).length),'Groupes'],[fmt(noGrp.length),'Sans groupe métier']];
+  const licN=['Creator','Explorer','Viewer'].reduce((a,l)=>a+occ(l),0), idleN=['Creator','Explorer','Viewer'].reduce((a,l)=>a+sumSt(l,'d')+sumSt(l,'n'),0), recs=U.filter(u=>u.rec);
+  const k=[[fmt(licN)+(CAP.Total?' / '+fmt(CAP.Total):''),'Licences occupées'],[fmt(occ('Creator'))+(CAP.Creator?' / '+fmt(CAP.Creator):''),'Creator'],[fmt(occ('Explorer'))+(CAP.Explorer?' / '+fmt(CAP.Explorer):''),'Explorer'],[fmt(occ('Viewer'))+(CAP.Viewer?' / '+fmt(CAP.Viewer):''),'Viewer'],[fmt(idleN),'Licences inactives > 90 j',true],[fmt(recs.length),'Ajustements Creator/Explorer',true],[fmt(occ('Unlicensed')),'Sans licence'],[fmt(Object.keys(GR).length),'Groupes']];
   $('licKpis').innerHTML=k.map(x=>'<div class="kpi'+(x[2]?' alert':'')+'"><b>'+x[0]+'</b><span>'+x[1]+'</span></div>').join('');
 }
 function tools(){
@@ -79,48 +89,48 @@ function tools(){
   const showF = st.tab==='usr';
   $('licFilt').hidden=!showF;
   if(showF){
-    $('licFilt').innerHTML=[['all','Toutes licences']].concat(LORDER.map(l=>[l,l])).map(([k,l])=>'<button type="button" class="chip" data-l="'+k+'" aria-pressed="'+(st.lic===k)+'">'+l+'</button>').join('')+'<span class="sep"></span>'+
+    $('licFilt').innerHTML=[['all','Toutes licences']].concat(['Creator','Explorer'].map(l=>[l,l])).map(([k,l])=>'<button type="button" class="chip" data-l="'+k+'" aria-pressed="'+(st.lic===k)+'">'+l+'</button>').join('')+'<span class="sep"></span>'+
       [['all','Tous'],['a','Actifs'],['w','31–90 j'],['d','> 90 j'],['n','Jamais'],['rec','Ajustement proposé']].map(([k,l])=>'<button type="button" class="chip" data-s="'+k+'" aria-pressed="'+(st.status===k)+'">'+(ST[k]?'<i style="background:'+ST[k].c+'"></i>':'')+l+'</button>').join('');
     $('licFilt').querySelectorAll('[data-l]').forEach(b=>b.onclick=()=>{ st.lic=b.dataset.l; tools(); main(); });
     $('licFilt').querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{ st.status=b.dataset.s; tools(); main(); });
   }
 }
 const uRow = u => '<button type="button" class="urow" data-u="'+esc(u.email)+'"><span class="dot" style="background:'+ST[u.st].c+'"></span><span class="nm"><b>'+esc(u.name)+'</b><small>'+esc(u.email)+'</small></span><span class="lt" style="--c:'+LIC[u.lic].c+'">'+esc(u.lic)+(u.admin?' · admin':'')+'</span><span class="r">'+ago(u.login)+'</span>'+(u.rec?'<span class="k red">'+(u.rec.k==='remove'?'RETIRER':'→ '+u.rec.to.toUpperCase())+'</span>':'')+'</button>';
-const gStats = G => { const m=[...G.members].map(e=>byEmail[e]).filter(Boolean); const act=m.filter(u=>u.st==='a').length; return {m, act, lic:LORDER.map(l=>[m.filter(u=>u.lic===l).length, LIC[l].c, l]), projects:Object.keys(G.perms).length}; };
+const gStats = G => { const m=[...G.members].map(e=>byEmail[e]).filter(Boolean); const c=m.filter(u=>u.lic==='Creator').length, e=m.filter(u=>u.lic==='Explorer').length; return {m, c, e, rest:Math.max(0,G.count-c-e), projects:Object.keys(G.perms).length}; };
 
 /* ---------- vues ---------- */
 function vLicences(){
   let h='<div class="lgrid">';
   ['Creator','Explorer','Viewer'].forEach(l=>{
-    const m=U.filter(u=>u.lic===l), cap=CAP[l]||0, rec=m.filter(u=>u.rec);
-    const s=k=>m.filter(u=>u.st===k).length;
+    const m={length:occ(l)}, cap=CAP[l]||0, rec=U.filter(u=>u.lic===l&&u.rec);
+    const s=k=>sumSt(l,k);
     h+='<section class="lcard"><div class="lhead"><span class="lt" style="--c:'+LIC[l].c+'">'+l+'</span><b>'+fmt(m.length)+(cap?'<small> / '+fmt(cap)+' allouées</small>':'')+'</b></div>'+
       (cap?'<div class="lbl"><span>Taux d’occupation</span><span>'+pct(m.length,cap)+' %</span></div>'+bar([[m.length,LIC[l].c,'occupées'],[Math.max(0,cap-m.length),'var(--line)','libres']],Math.max(cap,m.length)):'')+
       '<div class="lbl" style="margin-top:12px"><span>Dernière connexion</span><span>'+pct(s('a'),m.length)+' % actifs</span></div>'+bar(['a','w','d','n'].map(k=>[s(k),ST[k].c,ST[k].l]),m.length)+
       '<div class="legend">'+['a','w','d','n'].map(k=>'<span><i style="background:'+ST[k].c+'"></i>'+ST[k].l+' · '+fmt(s(k))+'</span>').join('')+'</div>'+
-      '<div class="lfoot"><span>'+fmt(rec.length)+' ajustement'+(rec.length>1?'s':'')+' proposé'+(rec.length>1?'s':'')+'</span>'+(rec.length?'<button type="button" class="ghost" data-go="'+l+'">Voir →</button>':'')+'</div></section>';
+      '<div class="lfoot"><span>'+(l==='Viewer'?fmt(s('d')+s('n'))+' Viewer inactifs ou jamais connectés':fmt(rec.length)+' ajustement'+(rec.length>1?'s':'')+' proposé'+(rec.length>1?'s':''))+'</span>'+(rec.length&&l!=='Viewer'?'<button type="button" class="ghost" data-go="'+l+'">Voir →</button>':'')+'</div></section>';
   });
   h+='</div>';
   // récupérables
   const rm=U.filter(u=>u.rec&&u.rec.k==='remove'), dn=U.filter(u=>u.rec&&u.rec.k==='down');
-  const freed=l=>rm.filter(u=>u.lic===l).length+dn.filter(u=>u.lic===l).length;
-  h+='<section class="block"><h3>Licences récupérables</h3><p class="hint">Estimation à partir de la dernière connexion et de l’activité de création. Les administrateurs du site sont exclus.</p><div class="grid3">'+
+  const freed=l=>l==='Viewer'?sumSt('Viewer','d')+sumSt('Viewer','n'):rm.filter(u=>u.lic===l).length+dn.filter(u=>u.lic===l).length;
+  h+='<section class="block"><h3>Licences récupérables</h3><p class="hint">Creator et Explorer : estimation par utilisateur, à partir de la dernière connexion et de l’activité de création (administrateurs exclus). Viewer : licences sans connexion depuis 90 jours ; elles sont souvent attribuées automatiquement à la connexion par un groupe (ex. MAG_ALL).</p><div class="grid3">'+
     ['Creator','Explorer','Viewer'].map(l=>'<div class="cell"><span>'+l+' libérables</span><b>'+fmt(freed(l))+'</b></div>').join('')+'</div>'+
     '<div class="two"><div><div class="eyebrow">Retirer la licence · '+fmt(rm.length)+'</div><div class="list">'+rm.sort((a,b)=>(a.login||0)-(b.login||0)).slice(0,40).map(uRow).join('')+'</div>'+(rm.length>40?'<p class="hint">… '+(rm.length-40)+' de plus dans l’onglet Utilisateurs.</p>':'')+'</div>'+
     '<div><div class="eyebrow">Rétrograder · '+fmt(dn.length)+'</div><div class="list">'+dn.sort((a,b)=>LORDER.indexOf(a.lic)-LORDER.indexOf(b.lic)).slice(0,40).map(uRow).join('')+'</div>'+(dn.length>40?'<p class="hint">… '+(dn.length-40)+' de plus dans l’onglet Utilisateurs.</p>':'')+'</div></div></section>';
   // rôles
-  const roles={}; U.forEach(u=>roles[u.role]=(roles[u.role]||0)+1);
+  const roles=ROLES;
   const adm=U.filter(u=>u.admin);
-  h+='<section class="block"><h3>Rôles sur le site</h3><div class="roles">'+Object.entries(roles).sort((a,b)=>b[1]-a[1]).map(([r,n])=>'<div class="role"><span>'+esc(r||'—')+'</span><b>'+fmt(n)+'</b>'+bar([[n,'var(--blue)']],U.length)+'</div>').join('')+'</div>'+
+  h+='<section class="block"><h3>Rôles sur le site</h3><div class="roles">'+Object.entries(roles).sort((a,b)=>b[1]-a[1]).map(([r,n])=>'<div class="role"><span>'+esc(r||'—')+'</span><b>'+fmt(n)+'</b>'+bar([[n,'var(--blue)']],ALLU())+'</div>').join('')+'</div>'+
     '<div class="eyebrow" style="margin-top:14px">Administrateurs du site · '+adm.length+'</div><div class="list">'+adm.map(uRow).join('')+'</div></section>';
   return h;
 }
 function vGroupes(){
-  const q=low(st.q); const gs=Object.values(GR).filter(G=>!q||low(G.name).includes(q)).map(G=>({G,s:gStats(G)})).sort((a,b)=>b.s.m.length-a.s.m.length);
-  let h='<table class="gtab"><thead><tr><th>Groupe</th><th class="n">Membres</th><th>Licences</th><th class="n">Actifs 30 j</th><th class="n">Projets</th><th>Licence à la connexion</th></tr></thead><tbody>';
-  gs.forEach(({G,s})=>{ const flags=[]; if(!s.m.length) flags.push('vide'); if(!s.projects) flags.push('sans droit'); if(s.m.length && pct(s.act,s.m.length)<20) flags.push('peu actif');
-    h+='<tr data-g="'+esc(G.name)+'" class="'+(st.sel===G.name?'sel':'')+'"><td><b>'+esc(G.name)+'</b>'+flags.map(f=>'<span class="k red">'+f.toUpperCase()+'</span>').join('')+'</td><td class="n">'+fmt(s.m.length)+'</td><td style="width:160px">'+bar(s.lic,s.m.length)+'</td><td class="n">'+(s.m.length?pct(s.act,s.m.length)+' %':'—')+'</td><td class="n">'+fmt(s.projects)+'</td><td>'+(G.los&&G.min?'<span class="pill blue">'+esc(G.min)+'</span>':'<span class="hint">—</span>')+'</td></tr>'; });
-  return h+'</tbody></table>'+(gs.length?'':'<p class="hint">Aucun groupe.</p>');
+  const q=low(st.q); const gs=Object.values(GR).filter(G=>!q||low(G.name).includes(q)).sort((a,b)=>b.count-a.count);
+  let h='<table class="gtab"><thead><tr><th>Groupe</th><th class="n">Membres</th><th class="n">Creator</th><th class="n">Explorer</th><th class="n">Projets</th><th>Licence à la connexion</th></tr></thead><tbody>';
+  gs.forEach(G=>{ const s=gStats(G), flags=[]; if(!G.count) flags.push('vide'); if(!s.projects && !/^(all users|tous les utilisateurs)$/i.test(G.name)) flags.push('sans droit');
+    h+='<tr data-g="'+esc(G.name)+'" class="'+(st.sel===G.name?'sel':'')+'"><td><b>'+esc(G.name)+'</b>'+flags.map(f=>'<span class="k red">'+f.toUpperCase()+'</span>').join('')+'</td><td class="n">'+fmt(G.count)+'</td><td class="n">'+(G.detailed?fmt(s.c):'<span class="hint">—</span>')+'</td><td class="n">'+(G.detailed?fmt(s.e):'<span class="hint">—</span>')+'</td><td class="n">'+fmt(s.projects)+'</td><td>'+(G.los&&G.min?'<span class="pill blue">'+esc(G.min)+'</span>':'<span class="hint">—</span>')+'</td></tr>'; });
+  return h+'</tbody></table><p class="hint" style="margin-top:8px">Creator / Explorer : membres détaillés pour les groupes de moins de 3 000 personnes. « — » : groupe trop grand pour le détail.</p>';
 }
 function vMapping(){
   const gs=Object.values(GR).filter(G=>Object.keys(G.perms).length);
@@ -132,13 +142,13 @@ function vMapping(){
     return '<td class="hm '+(w?'w':'r')+(d?' d':'')+'" title="'+esc(G.name+' → '+t+' : '+ps.length+' projet(s)'+(w?' · écriture':' · lecture')+(d?' · refus explicites':''))+'">'+ps.length+'</td>'; };
   return '<p class="hint" style="margin:0 0 10px">Droits des groupes par projet racine (nombre de projets où le groupe a au moins une règle). <span class="hm r sw">lecture</span> <span class="hm w sw">écriture / publication</span> <span class="hm r d sw">refus explicite</span></p>'+
     '<div class="mwrap"><table class="matrix"><thead><tr><th></th>'+T.map(t=>'<th><span>'+esc(t)+'</span></th>').join('')+'</tr></thead><tbody>'+
-    rows.map(G=>'<tr data-g="'+esc(G.name)+'" class="'+(st.sel===G.name?'sel':'')+'"><th>'+esc(G.name)+' <small>'+fmt(G.members.size)+'</small></th>'+T.map(t=>cell(G,t)).join('')+'</tr>').join('')+'</tbody></table></div>';
+    rows.map(G=>'<tr data-g="'+esc(G.name)+'" class="'+(st.sel===G.name?'sel':'')+'"><th>'+esc(G.name)+' <small>'+fmt(G.count)+'</small></th>'+T.map(t=>cell(G,t)).join('')+'</tr>').join('')+'</tbody></table></div>';
 }
 function vUsers(){
   const q=low(st.q);
   const list=U.filter(u=>(st.lic==='all'||u.lic===st.lic)&&(st.status==='all'||(st.status==='rec'?!!u.rec:u.st===st.status))&&(!q||low(u.name).includes(q)||low(u.email).includes(q)||u.groups.some(g=>low(g).includes(q))))
     .sort((a,b)=>LORDER.indexOf(a.lic)-LORDER.indexOf(b.lic)||(b.login||0)-(a.login||0));
-  return '<p class="hint" style="margin:0 0 8px">'+fmt(list.length)+' utilisateur'+(list.length>1?'s':'')+'</p><div class="list">'+list.slice(0,400).map(uRow).join('')+'</div>'+(list.length>400?'<p class="hint">Affinez la recherche pour voir les '+(list.length-400)+' autres.</p>':'');
+  return '<p class="hint" style="margin:0 0 8px">'+fmt(list.length)+' utilisateur'+(list.length>1?'s':'')+' · Creator, Explorer et administrateurs (les '+fmt(occ('Viewer'))+' Viewer et '+fmt(occ('Unlicensed'))+' comptes sans licence sont comptés dans l’onglet Licences)</p><div class="list">'+list.slice(0,400).map(uRow).join('')+'</div>'+(list.length>400?'<p class="hint">Affinez la recherche pour voir les '+(list.length-400)+' autres.</p>':'');
 }
 function main(){
   const m=$('licMain');
@@ -157,26 +167,26 @@ function panel(){
     h+='<div class="meta"><span class="pill blue">'+esc(u.role)+'</span><span class="pill" style="color:'+ST[u.st].c+'">● '+ST[u.st].l+'</span></div>';
     h+='<div class="grid2"><div class="cell"><span>Dernière connexion</span><b class="sm">'+dfr(u.login)+'</b></div><div class="cell"><span>Compte créé</span><b class="sm">'+dfr(u.created)+'</b></div><div class="cell"><span>Dernière création</span><b class="sm">'+dfr(u.author)+'</b></div><div class="cell"><span>Dernière publication</span><b class="sm">'+dfr(u.publish)+'</b></div><div class="cell"><span>Classeurs possédés</span><b>'+fmt(u.owb)+'</b></div><div class="cell"><span>Sources possédées</span><b>'+fmt(u.ods)+'</b></div></div>';
     h+='<ul class="flags">'+(u.rec?'<li>'+esc(u.rec.l)+(u.owb||u.ods?' Attention : il possède '+fmt(u.owb)+' classeur(s) et '+fmt(u.ods)+' source(s), à réattribuer avant de retirer la licence.':'')+'</li>':'<li class="ok">Licence cohérente avec l’usage.</li>')+'</ul>';
-    h+='<div class="sec"><div class="eyebrow">Groupes · '+u.groups.length+'</div>'+(u.groups.length?'<div class="list">'+u.groups.sort().map(g=>'<button type="button" data-gp="'+esc(g)+'"><span class="nm">'+esc(g)+'</span><span class="r">'+fmt((GR[g]&&GR[g].members.size)||0)+'</span></button>').join('')+'</div>':'<p class="hint">Aucun groupe.</p>')+'</div>';
+    h+='<div class="sec"><div class="eyebrow">Groupes · '+u.groups.length+'</div>'+(u.groups.length?'<div class="list">'+u.groups.sort().map(g=>'<button type="button" data-gp="'+esc(g)+'"><span class="nm">'+esc(g)+'</span><span class="r">'+fmt((GR[g]&&GR[g].count)||0)+'</span></button>').join('')+'</div>':'<p class="hint">Aucun groupe.</p>')+'</div>';
   } else if(st.sel && GR[st.sel]){
     const G=GR[st.sel], s=gStats(G), perms=Object.values(G.perms).sort((a,b)=>a.top.localeCompare(b.top,'fr')||a.item.localeCompare(b.item,'fr'));
     h+='<div><div class="eyebrow">Groupe</div><h2>'+esc(G.name)+'</h2></div>';
-    h+='<div class="grid2"><div class="cell"><span>Membres</span><b>'+fmt(s.m.length)+'</b></div><div class="cell"><span>Actifs 30 j</span><b>'+(s.m.length?pct(s.act,s.m.length)+' %':'—')+'</b></div><div class="cell"><span>Projets avec droits</span><b>'+fmt(s.projects)+'</b></div><div class="cell"><span>Licence à la connexion</span><b class="sm">'+(G.los&&G.min?esc(G.min):'non')+'</b></div></div>';
-    h+='<div class="sec"><div class="eyebrow">Licences des membres</div>'+bar(s.lic,s.m.length)+'<div class="legend">'+s.lic.filter(x=>x[0]).map(x=>'<span><i style="background:'+x[1]+'"></i>'+x[2]+' · '+x[0]+'</span>').join('')+'</div></div>';
-    const f=[]; if(!s.m.length) f.push(['','Groupe vide : à supprimer s’il ne sert plus.']); if(!s.projects && !/^all users$/i.test(G.name)) f.push(['','Aucun droit sur un projet : groupe orphelin ou utilisé seulement pour des abonnements ou des filtres de sécurité.']);
-    const idle=s.m.filter(u=>u.st==='d'||u.st==='n').length; if(idle) f.push(['info',idle+' membre'+(idle>1?'s':'')+' sans connexion depuis plus de 90 jours.']);
+    h+='<div class="grid2"><div class="cell"><span>Membres</span><b>'+fmt(G.count)+'</b></div><div class="cell"><span>dont Creator / Explorer</span><b>'+(G.detailed?fmt(s.c)+' / '+fmt(s.e):'—')+'</b></div><div class="cell"><span>Projets avec droits</span><b>'+fmt(s.projects)+'</b></div><div class="cell"><span>Licence à la connexion</span><b class="sm">'+(G.los&&G.min?esc(G.min):'non')+'</b></div></div>';
+    if(G.detailed && G.count) h+='<div class="sec"><div class="eyebrow">Licences des membres</div>'+bar([[s.c,LIC.Creator.c,'Creator'],[s.e,LIC.Explorer.c,'Explorer'],[s.rest,LIC.Viewer.c,'Viewer ou sans licence']],G.count)+'<div class="legend"><span><i style="background:'+LIC.Creator.c+'"></i>Creator · '+s.c+'</span><span><i style="background:'+LIC.Explorer.c+'"></i>Explorer · '+s.e+'</span><span><i style="background:'+LIC.Viewer.c+'"></i>Viewer ou sans licence · '+fmt(s.rest)+'</span></div></div>';
+    const f=[]; if(!G.count) f.push(['','Groupe vide : à supprimer s’il ne sert plus.']); if(!G.detailed && G.count) f.push(['info','Groupe de '+fmt(G.count)+' membres : liste détaillée non chargée (groupes de moins de 3 000 membres uniquement).']); if(!s.projects && !/^(all users|tous les utilisateurs)$/i.test(G.name)) f.push(['','Aucun droit sur un projet : groupe orphelin ou utilisé seulement pour des abonnements ou des filtres de sécurité.']);
+    const idle=s.m.filter(u=>u.st==='d'||u.st==='n').length; if(idle) f.push(['info',idle+' Creator/Explorer sans connexion depuis plus de 90 jours.']);
     if(G.los&&G.min) f.push(['info','Attribue la licence « '+esc(G.min)+' » à la première connexion de ses membres.']);
     if(f.length) h+='<ul class="flags">'+f.map(([c,t])=>'<li class="'+c+'">'+t+'</li>').join('')+'</ul>';
     if(perms.length) h+='<div class="sec"><div class="eyebrow">Droits sur les projets</div><div class="perm">'+perms.map(p=>'<div><b>'+esc(p.item)+'</b><small>'+esc(p.top===p.item?'projet racine':p.top)+'</small><div class="caps">'+[...p.allow].sort().map(c=>'<span class="pill">'+esc(c)+'</span>').join('')+[...p.deny].sort().map(c=>'<span class="pill red">✕ '+esc(c)+'</span>').join('')+'</div></div>').join('')+'</div></div>';
-    h+='<div class="sec"><div class="eyebrow">Membres</div><div class="list">'+s.m.sort((a,b)=>(b.login||0)-(a.login||0)).slice(0,300).map(uRow).join('')+'</div></div>';
+    if(s.m.length) h+='<div class="sec"><div class="eyebrow">Membres Creator / Explorer</div><div class="list">'+s.m.sort((a,b)=>(b.login||0)-(a.login||0)).slice(0,300).map(uRow).join('')+'</div></div>';
   } else {
-    const lic=U.filter(u=>u.lic!=='Unlicensed');
+    const licN=['Creator','Explorer','Viewer'].reduce((a,l)=>a+occ(l),0);
     h+='<div><div class="eyebrow">Site france</div><h2>Licences & groupes</h2></div>';
-    h+='<div class="sec"><div class="eyebrow">Répartition des licences</div>'+bar(LORDER.map(l=>[occ(l),LIC[l].c,l]),U.length)+'<div class="legend">'+LORDER.map(l=>'<span><i style="background:'+LIC[l].c+'"></i>'+l+' · '+fmt(occ(l))+'</span>').join('')+'</div></div>';
-    const f=[]; const free=CAP.Total?CAP.Total-lic.length:null;
+    h+='<div class="sec"><div class="eyebrow">Répartition des licences</div>'+bar(LORDER.map(l=>[occ(l),LIC[l].c,l]),ALLU())+'<div class="legend">'+LORDER.map(l=>'<span><i style="background:'+LIC[l].c+'"></i>'+l+' · '+fmt(occ(l))+'</span>').join('')+'</div></div>';
+    const f=[]; const free=CAP.Total?CAP.Total-licN:null;
     if(free!=null) f.push([free<20?'':'info', fmt(free)+' licence'+(free>1?'s':'')+' encore disponible'+(free>1?'s':'')+' sur '+fmt(CAP.Total)+'.']);
-    const idle=lic.filter(u=>u.st==='d'||u.st==='n'); if(idle.length) f.push(['', fmt(idle.length)+' licences sans connexion depuis plus de 90 jours, dont '+fmt(idle.filter(u=>u.lic==='Creator').length)+' Creator.']);
-    const emptyG=Object.values(GR).filter(G=>!G.members.size).length; if(emptyG) f.push(['info',emptyG+' groupe'+(emptyG>1?'s vides':' vide')+'.']);
+    const idleN=['Creator','Explorer','Viewer'].reduce((a,l)=>a+sumSt(l,'d')+sumSt(l,'n'),0); if(idleN) f.push(['', fmt(idleN)+' licences sans connexion depuis plus de 90 jours : '+fmt(sumSt('Creator','d')+sumSt('Creator','n'))+' Creator, '+fmt(sumSt('Explorer','d')+sumSt('Explorer','n'))+' Explorer, '+fmt(sumSt('Viewer','d')+sumSt('Viewer','n'))+' Viewer.']);
+    const emptyG=Object.values(GR).filter(G=>!G.count).length; if(emptyG) f.push(['info',emptyG+' groupe'+(emptyG>1?'s vides':' vide')+'.']);
     const adm=U.filter(u=>u.admin).length; if(adm>5) f.push(['info',adm+' administrateurs du site : à limiter au strict nécessaire.']);
     h+='<ul class="flags">'+f.map(([c,t])=>'<li class="'+c+'">'+t+'</li>').join('')+'</ul>';
     h+='<p class="hint">Données en direct d’Admin Insights (TS Users, Groups, Permissions). Cliquez sur un utilisateur ou un groupe pour le détail.</p>';
