@@ -1,0 +1,48 @@
+/* Page Lineage — mêmes jetons que index.html */
+.lin .head .brand{flex:0 1 340px}
+.picker{position:relative;flex:1 1 320px;max-width:520px}
+.picker input{width:100%;height:36px;border:1px solid var(--line);border-radius:99px;padding:0 14px 0 36px;font:inherit;font-size:14px;background:var(--surface);color:var(--ink)}
+.picker input:focus{border-color:var(--blue)}
+.picker svg{position:absolute;left:13px;top:10px}
+.drop{position:absolute;z-index:5;top:42px;left:0;right:0;max-height:min(60vh,520px);overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(11,31,58,.16);padding:6px}
+.drop .grp{font-size:10.5px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:#93A2B6;padding:10px 10px 4px}
+.drop button{display:flex;width:100%;align-items:center;gap:10px;border:0;background:none;text-align:left;padding:7px 10px;border-radius:8px;font-size:13px}
+.drop button:hover,.drop button.hl{background:var(--blue-50)}
+.drop .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.drop .r{font-size:11px;color:var(--muted);white-space:nowrap}
+.drop .none{padding:14px;color:var(--muted);font-size:13px}
+
+.cols{display:grid;position:relative}
+.colh{position:sticky;top:0;z-index:2;background:var(--surface);padding:12px 0 8px;font-size:10.5px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:#93A2B6;display:flex;gap:6px;align-items:center}
+.colh b{font-weight:650;color:var(--blue);background:var(--blue-50);border-radius:99px;padding:0 7px;letter-spacing:0}
+.ln{position:absolute;display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:12.5px;text-align:left;box-shadow:0 1px 2px rgba(11,31,58,.05);transition:opacity .15s,border-color .15s,box-shadow .15s}
+.ln:hover{border-color:var(--blue-100);box-shadow:0 3px 10px rgba(0,78,159,.10)}
+.ln .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ln .ic{flex:none;width:18px;height:18px;border-radius:5px;display:grid;place-items:center;font-size:10px;font-weight:700;color:#fff}
+.ln .k{font-size:10px;font-weight:700;letter-spacing:.04em;padding:1px 6px;border-radius:5px;background:#EEF1F5;color:var(--ink-2);white-space:nowrap}
+.ln.sel{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-100);background:var(--blue-50)}
+.ln.on{border-color:var(--blue)}
+.ln.dim{opacity:.28}
+.ln.unused{border-style:dashed}
+svg.edges{position:absolute;inset:0 auto auto 0;pointer-events:none;overflow:visible}
+svg.edges path{fill:none;stroke:#D3DCE8;stroke-width:1.1}
+svg.edges path.on{stroke:var(--blue);stroke-width:1.8}
+svg.edges path.dim{stroke:#EDF1F6}
+.more{position:absolute;font-size:12px;color:var(--blue);font-weight:600;border:1px dashed var(--blue-100);background:var(--blue-50);border-radius:9px;height:30px;padding:0 10px}
+
+.code{margin:0;background:#0B1F3A;color:#E6EDF7;border-radius:10px;padding:12px 14px;font:12.5px/1.55 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:340px;overflow:auto}
+.code .f{color:#8CC4FF}
+.code .kw{color:#FFB86B;font-weight:600}
+.code .s{color:#A6E3A1}
+.code .c{color:#7D8FA8;font-style:italic}
+.code button.f{all:unset;color:#8CC4FF;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.code button.f:hover{color:#fff}
+.meta{display:flex;flex-wrap:wrap;gap:6px}
+.pill{font-size:11px;font-weight:650;padding:2px 8px;border-radius:99px;background:var(--bg);color:var(--ink-2)}
+.pill.blue{background:var(--blue-50);color:var(--blue)}
+.pill.red{background:#FFF0F2;color:#9A0016}
+.sec{display:flex;flex-direction:column;gap:6px}
+.hint{font-size:12.5px;color:var(--muted);margin:0}
+.welcome{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--muted);padding:24px}
+.welcome h3{margin:0 0 6px;color:var(--ink);font-size:16px}
+.loading{position:absolute;inset:0;display:grid;place-items:center;background:rgba(255,255,255,.7);z-index:4}
