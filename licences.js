@@ -33,7 +33,8 @@ async function load(){
   const dash=tableau.extensions.dashboardContent.dashboard, W=n=>dash.worksheets.find(w=>w.name===n);
   const rd = async n => { const w=W(n); if(!w) return null; try{ return await readTable(w); }catch(e){ console.error('[licences] '+n, e); window.__LIC_ERR=(window.__LIC_ERR||[]).concat(n+' : '+(e&&e.message||JSON.stringify(e))); return null; } };
   window.__LIC_ERR=[];
-  const [ts,tu,tgs,tg,tp] = await Promise.all([rd('Lic_Summary'), rd('Lic_Users'), rd('Lic_GroupStats'), rd('Lic_Groups'), rd('Lic_Perms')]);
+  // lecture séquentielle : plusieurs lecteurs de données simultanés se mélangent côté Tableau
+  const ts=await rd('Lic_Summary'), tu=await rd('Lic_Users'), tgs=await rd('Lic_GroupStats'), tg=await rd('Lic_Groups'), tp=await rd('Lic_Perms');
   window.__LIC_ROWS={Summary:ts&&ts.data.length, Users:tu&&tu.data.length, GroupStats:tgs&&tgs.data.length, Groups:tg&&tg.data.length, Perms:tp&&tp.data.length, cols:ts?ts.columns.map(c=>c.fieldName).join('/'):''};
   if(!ts) throw new Error((window.__LIC_ERR.length?window.__LIC_ERR:['Lic_Summary illisible']).join(' | '));
   // 1. synthèse : licence × rôle × ancienneté de connexion (tous les utilisateurs du site)
@@ -192,7 +193,6 @@ function panel(){
     h+='<ul class="flags">'+f.map(([c,t])=>'<li class="'+c+'">'+t+'</li>').join('')+'</ul>';
     h+='<p class="hint">Données en direct d’Admin Insights (TS Users, Groups, Permissions). Cliquez sur un utilisateur ou un groupe pour le détail.</p>';
     if((window.__LIC_ERR||[]).length) h+='<ul class="flags">'+window.__LIC_ERR.map(e=>'<li>Lecture : '+esc(e)+'</li>').join('')+'</ul>';
-    h+='<p class="hint" style="font-size:11px">Lignes lues : '+Object.entries(window.__LIC_ROWS||{}).map(([k,n])=>k+' '+n).join(' · ')+'</p>';
   }
   p.innerHTML=h;
   p.querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>{ st.sel='u:'+b.dataset.u; panel(); });
