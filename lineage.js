@@ -148,18 +148,19 @@ function order(nodes){
 function draw(){
   const host=$('lCanvas'); const stage=$('lStage');
   if(!G){ stage.innerHTML=''; stage.style.width=stage.style.height='0'; return; }
-  const all = Object.values(G.N).filter(visible);
+  const hi = st.sel && G.N[st.sel] ? closure(st.sel) : null;
+  // focus : on n'affiche que la chaîne amont/aval de l'élément choisi
+  const all = Object.values(G.N).filter(n=> n.k===st.sel || (visible(n) && (!hi || hi.has(n.k))));
   const byCol0 = order(all);
   const live = COLS.map((c,i)=>i).filter(i=>byCol0[i].length);
   const byCol = live.map(i=>byCol0[i]), CC = live.map(i=>COLS[i]);
   const H = Math.max(...byCol.map(c=>c.length),1)*(NH+NG)+TOP+20, Wd = Math.max(CC.length,1)*(CW+GAP)-GAP+PADL*2;
-  const hi = st.sel && G.N[st.sel] ? closure(st.sel) : null;
   let h = '<svg class="edges" width="'+Wd+'" height="'+H+'" id="lEdges"></svg>';
   CC.forEach((c,i)=>{ h+='<div class="colh" style="position:absolute;left:'+(PADL+i*(CW+GAP))+'px;width:'+CW+'px;top:0">'+esc(c.l)+' <b>'+byCol[i].length+'</b></div>'; });
   const P = {};
   byCol.forEach((col,i)=>col.forEach((n,j)=>{
     const x=PADL+i*(CW+GAP), y=TOP+j*(NH+NG); P[n.k]={x,y};
-    const cls = ['ln', n.k===st.sel?'sel':'', hi?(hi.has(n.k)?'on':'dim'):'', (n.t==='C'&&!n.used)?'unused':''].join(' ');
+    const cls = ['ln', n.k===st.sel?'sel':'', hi?'on':'', (n.t==='C'&&!n.used)?'unused':''].join(' ');
     const tag = n.t==='E' ? (n.mode==='extract'?'EXTRACT':'LIVE') : n.t==='C' && !n.used ? 'NON UTILISÉ' : n.t==='T' && n.ct && !/bigquery/i.test(n.ct) ? n.ct.toUpperCase().slice(0,10) : '';
     h+='<button type="button" class="'+cls+'" data-k="'+esc(n.k)+'" style="left:'+x+'px;top:'+y+'px;width:'+CW+'px" title="'+esc(n.full||n.name)+'"><span class="ic" style="background:'+COLS[CI[n.t]].c+'">'+COLS[CI[n.t]].i+'</span><span class="nm">'+esc(n.name)+'</span>'+(tag?'<span class="k">'+esc(tag)+'</span>':'')+'</button>';
   }));
@@ -174,7 +175,8 @@ function draw(){
   $('lEdges').innerHTML=paths;
   stage.querySelectorAll('.ln').forEach(b=>b.onclick=()=>select(b.dataset.k));
 }
-function select(k){ st.sel = (st.sel===k ? null : k); draw(); panel(); }
+function focusBar(){ const f=$('lFocus'); if(!f) return; const n=st.sel&&G&&G.N[st.sel]; if(!n){ f.hidden=true; return; } f.hidden=false; f.innerHTML='<span class="fl">Filtré sur</span><span class="ic" style="background:'+COLS[CI[n.t]].c+'">'+COLS[CI[n.t]].i+'</span><b>'+esc(n.name)+'</b><span class="x" aria-hidden="true">✕</span>'; f.title='Afficher tout le classeur'; }
+function select(k){ st.sel = (st.sel===k ? null : k); draw(); panel(); focusBar(); $('lCanvas').scrollTo({left:0,top:0}); }
 
 /* ---------- formules ---------- */
 function hl(src, n){
@@ -261,8 +263,8 @@ function panel(){
     h+='<button type="button" class="ghost" id="lBack" style="align-self:flex-start">← Vue du classeur</button>';
   }
   p.innerHTML=h;
-  p.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{ st.sel=b.dataset.k; draw(); panel(); scrollTo(b.dataset.k); });
-  const bk=$('lBack'); if(bk) bk.onclick=()=>{ st.sel=null; draw(); panel(); };
+  p.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{ st.sel=b.dataset.k; draw(); panel(); focusBar(); $('lCanvas').scrollTo({left:0,top:0}); });
+  const bk=$('lBack'); if(bk) bk.onclick=()=>{ st.sel=null; draw(); panel(); focusBar(); };
 }
 function scrollTo(k){ const el=$('lStage').querySelector('[data-k="'+CSS.escape(k)+'"]'); if(el) el.scrollIntoView({block:'center',inline:'nearest',behavior:'smooth'}); }
 
@@ -289,7 +291,7 @@ async function openWb(id){
     await WD.applyFilterAsync('wb',[id],tableau.FilterUpdateType.Replace);
     const rows=(await readRows(WD)).filter(r=>r.wb===id);
     cur=id; G=buildGraph(rows); if(!G.W) G.W={id, name:w.name, proj:w.proj, own:w.own, upd:w.upd};
-    st.sel=null; $('lSub').textContent=w.proj+' · '+w.name;
+    st.sel=null; focusBar(); $('lSub').textContent=w.proj+' · '+w.name;
     try{ localStorage.setItem('lin.wb',id); }catch(e){}
   }catch(e){ G=null; $('lWelcome').hidden=false; $('lWelcome').innerHTML='<div><h3>Lecture impossible</h3><p>Le lineage de ce classeur n’a pas pu être lu.</p></div>'; }
   $('lLoading').hidden=true; kpis(); draw(); panel(); $('lCanvas').scrollTo({left:0,top:0});
@@ -297,11 +299,12 @@ async function openWb(id){
 
 /* ---------- démarrage ---------- */
 function mount(){
-  const css=document.createElement('link'); css.rel='stylesheet'; css.href='lineage.css'; document.head.appendChild(css);
+  const css=document.createElement('link'); css.rel='stylesheet'; css.href='lineage.css?v=7'; document.head.appendChild(css);
   const app=document.createElement('div'); app.className='app lin'; app.id='lin'; app.hidden=true;
   app.innerHTML=
    '<header class="head"><div class="brand"><div class="mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="5" rx="1.5"/><rect x="15" y="4" width="6" height="5" rx="1.5"/><rect x="9" y="15" width="6" height="5" rx="1.5"/><path d="M6 9v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9M12 13v2"/></svg></div><div><h1>Lineage · Tableau France</h1><p id="lSub">Du tableau de bord aux tables BigQuery</p></div></div><div class="kpis" id="lKpis"></div></header>'+
    '<div class="tools"><label class="picker"><span style="position:absolute;left:-9999px">Choisir un classeur</span><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#93A2B6" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="lPick" type="search" placeholder="Choisir un classeur (nom, projet, propriétaire)…" autocomplete="off"><div class="drop" id="lDrop" hidden></div></label>'+
+   '<button type="button" class="focus" id="lFocus" hidden></button>'+
    '<div class="chips" role="group" aria-label="Champs calculés" id="lCalc"></div><span class="sep" aria-hidden="true"></span>'+
    '<label class="search" style="max-width:260px"><span style="position:absolute;left:-9999px">Chercher dans le lineage</span><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#93A2B6" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="lQ" type="search" placeholder="Champ, formule, table…" autocomplete="off"></label></div>'+
    '<div class="main" style="padding-top:10px"><div class="canvas" id="lCanvas" aria-label="Graphe de lineage"><div class="stage" id="lStage"></div><div class="welcome" id="lWelcome"><div><h3>Choisissez un classeur</h3><p>Recherchez-le par son nom, son projet ou son propriétaire.</p></div></div><div class="loading" id="lLoading" hidden><div class="ring" style="width:36px;height:36px;border-radius:50%;border:3px solid var(--blue-100);border-top-color:var(--blue);animation:spin 1s linear infinite"></div></div></div><aside class="panel" id="lPanel" aria-live="polite"></aside></div>';
@@ -315,6 +318,7 @@ function mount(){
   pick.addEventListener('keydown',e=>{ if(e.key==='Escape') $('lDrop').hidden=true; if(e.key==='Enter'){ const b=$('lDrop').querySelector('[data-w]'); if(b) b.click(); } });
   document.addEventListener('click',e=>{ if(!e.target.closest('.picker')) $('lDrop').hidden=true; });
   $('lQ').addEventListener('input',e=>{ st.q=e.target.value.trim(); draw(); });
+  $('lFocus').onclick=()=>{ st.sel=null; draw(); panel(); focusBar(); };
 }
 window.LIN_START = async function(){
   mount();

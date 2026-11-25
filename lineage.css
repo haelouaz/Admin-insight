@@ -46,3 +46,10 @@ svg.edges path.dim{stroke:#EDF1F6}
 .welcome{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--muted);padding:24px}
 .welcome h3{margin:0 0 6px;color:var(--ink);font-size:16px}
 .loading{position:absolute;inset:0;display:grid;place-items:center;background:rgba(255,255,255,.7);z-index:4}
+
+.focus{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 10px 0 12px;border-radius:99px;border:1px solid var(--blue);background:var(--blue-50);color:var(--blue);font-size:12.5px;max-width:380px;cursor:pointer}
+.focus .fl{color:var(--muted);font-weight:500}
+.focus .ic{flex:none;width:16px;height:16px;border-radius:4px;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff}
+.focus b{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.focus .x{font-size:11px;margin-left:2px}
+.focus:hover{background:var(--blue-100)}
