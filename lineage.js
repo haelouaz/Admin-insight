@@ -51,7 +51,7 @@ function buildGraph(rows){
   rows.forEach(r=>{ if(r.type==='E') eIds.add(r.id); if(r.type==='P') pIds.add(r.id); });
   const owner = p => eIds.has(p) ? key('E',p) : pIds.has(p) ? key('P',p) : null;
   const pUp = {}; // E -> [P]
-  const sheetsV = {}; const zset = new Set(); let twbOk = false;
+  const sheetsV = {}; const zset = new Set(), zHidden = new Set(), ksheet = {}; let twbOk = false;
   rows.forEach(r=>{
     switch(r.type){
       case 'W': { const [proj,own,upd,partial]=r.info.split('|'); W={id:r.id,name:r.name,proj,own,upd,partial:partial==='partial'}; break; }
@@ -61,7 +61,8 @@ function buildGraph(rows){
       case 'P': add('P',r.id,r.name,{proj:r.info}); link(key('P',r.id), key('E',r.parent)); (pUp[r.parent]=pUp[r.parent]||[]).push(r.id); break;
       case 'T': { const [ct,db]=r.info.split('|'); const parts=r.name.replace(/[\[\]`]/g,'').split('.'); add('T',r.id,parts.length>1?parts.slice(-2).join('.'):r.name,{ct,db,full:r.name}); link(key('T',r.id), owner(r.parent)); break; }
       case 'Y': twbOk = true; break;
-      case 'Z': zset.add(low(r.parent)+'|'+low(r.name)); break;
+      case 'Z': zset.add(low(r.parent)+'|'+low(r.name)); if(r.info==='h') zHidden.add(low(r.parent)+'|'+low(r.name)); break;
+      case 'K': { const [d,t,a,h]=r.info.split('|'); ksheet[r.name]={inDash:d==='1',inTip:t==='1',inAct:a==='1',hidden:h==='1'}; break; }
       case 'C': { const [dt,role,ns,nr,nw,fl]=r.info.split('|'); const num=v=>v===''||v==null?null:+v; add('C',r.id,r.name,{formula:r.formula,dt,role,ds:r.parent,dsk:owner(r.parent),nSheets:num(ns),nRef:num(nr),nWb:num(nw),inDsf:fl==='1'}); link(owner(r.parent), key('C',r.id)); break; }
     }
   });
@@ -116,6 +117,12 @@ function buildGraph(rows){
   const clean = c => { const owners = c.dsk && c.dsk.startsWith('P:') ? (eByP[c.ds]||[]) : [c.ds]; return owners.some(e=>{ const en=N[key('E',e)]; return en && zset.has(low(en.name)+'|'+low(c.name)); }); };
   C.forEach(c=>{ if(used.has(c.k)) return; if(!twbOk){ (why[c.k]=why[c.k]||[]).push('notwb'); used.add(c.k); } else if(!clean(c)){ (why[c.k]=why[c.k]||[]).push('twb'); used.add(c.k); } });
   C.forEach(n=>{ n.used=used.has(n.k); n.why=why[n.k]||[]; n.elsewhereOnly = n.why.length && n.why.every(x=>x==='elsewhere'); });
+  // statut affiché / masqué d'un champ supprimable (attribut hidden de sa définition)
+  C.forEach(c=>{ if(c.used) return; const owners = c.dsk && c.dsk.startsWith('P:') ? (eByP[c.ds]||[]) : [c.ds]; c.hidden = owners.some(e=>{ const en=N[key('E',e)]; return en && zHidden.has(low(en.name)+'|'+low(c.name)); }); });
+  // feuilles inutilisées : ni dans un tableau de bord, ni en infobulle (viz in tooltip), ni cible/source d'une action
+  Object.values(N).filter(n=>n.t==='S').forEach(sn=>{ const k=ksheet[sn.name];
+    if(k){ sn.inDash=k.inDash; sn.inTip=k.inTip; sn.inAct=k.inAct; sn.hidden=k.hidden; sn.unused=!k.inDash && !k.inTip && !k.inAct; }
+    else { sn.inDash=[...(down[sn.k]||[])].some(x=>x.startsWith('D:')); sn.unused=null; } });
   const orph=Object.values(N).filter(n=>n.t==='S' && ![...(down[n.k]||[])].some(k=>k.startsWith('D:')));
   if(orph.length){ N['D:__orphan']={k:'D:__orphan',t:'D',id:'__orphan',name:'Feuilles hors tableau de bord',virtual:true}; orph.forEach(sn=>link(sn.k,'D:__orphan')); }
   const rdeps={}; Object.entries(deps).forEach(([c,set])=>set.forEach(d=>(rdeps[d]=rdeps[d]||new Set()).add(c)));
@@ -135,6 +142,7 @@ function closure(k){
 /* ---------- rendu ---------- */
 function visible(n){
   if(n.t==='C'){ if(st.calc==='used' && !n.used) return false; if(st.calc==='unused' && n.used) return false; }
+  if(n.t==='S'){ if(st.calc==='unused' && !n.unused) return false; }
   if(st.q){ const q=low(st.q); if(!low(n.name).includes(q) && !(n.formula && low(n.formula).includes(q))) return false; }
   return true;
 }
@@ -147,7 +155,7 @@ function columns(){
   COLS.forEach((c,i)=>{
     let items;
     if(anc) items=upOf(anc,c.k).map(k=>G.N[k]);
-    else items=Object.values(G.N).filter(n=>n.t===c.k && (c.k!=='C' || visible(n)));
+    else items=Object.values(G.N).filter(n=>n.t===c.k && ((c.k!=='C' && c.k!=='S') || visible(n)));
     items=items.filter(n=>n && (match(n) || st.path[i]===n.k));
     const parentS = anc && anc.startsWith('S:') ? anc : null;
     items.forEach(n=>{ n._direct = parentS && n.t==='C' ? (G.down[n.k]||new Set()).has(parentS) : null; });
@@ -173,8 +181,8 @@ function draw(){
     col.items.forEach((n,j)=>{
       const y=TOP+j*(NH+NG); P[n.k]={x,y,ci};
       const onPath=st.path[col.i]===n.k;
-      const cls=['ln', n.k===st.sel?'sel':'', onPath?'on':'', (n.t==='C'&&!n.used)?'unused':''].join(' ');
-      const tag = n.t==='E' ? (n.mode==='extract'?'EXTRACT':'LIVE') : n.t==='C' && !n.used ? 'NON UTILISÉ' : n.t==='C' && n._direct===false ? 'INDIRECT' : n.t==='T' && n.ct && !/bigquery/i.test(n.ct) ? n.ct.toUpperCase().slice(0,10) : '';
+      const cls=['ln', n.k===st.sel?'sel':'', onPath?'on':'', ((n.t==='C'&&!n.used)||(n.t==='S'&&n.unused))?'unused':''].join(' ');
+      const tag = n.t==='E' ? (n.mode==='extract'?'EXTRACT':'LIVE') : n.t==='C' && !n.used ? (n.hidden?'INUTILISÉ · MASQUÉ':'INUTILISÉ · AFFICHÉ') : n.t==='S' && n.unused ? (n.hidden?'INUTILISÉE · MASQUÉE':'INUTILISÉE · AFFICHÉE') : n.t==='C' && n._direct===false ? 'INDIRECT' : n.t==='T' && n.ct && !/bigquery/i.test(n.ct) ? n.ct.toUpperCase().slice(0,10) : '';
       const cnt = n.t==='D' ? upOf(n.k,'S').length : n.t==='S' ? upOf(n.k,'C').length : 0;
       h+='<button type="button" class="'+cls+'" data-k="'+esc(n.k)+'" data-c="'+col.i+'" style="left:'+x+'px;top:'+y+'px;width:'+CW+'px" title="'+esc(n.full||n.name)+'"><span class="ic" style="background:'+COLS[CI[n.t]].c+'">'+COLS[CI[n.t]].i+'</span><span class="nm">'+esc(n.name)+'</span>'+(tag?'<span class="k">'+esc(tag)+'</span>':'')+(cnt?'<span class="cnt">'+cnt+'</span>':'')+'<span class="chev" aria-hidden="true">›</span></button>';
     });
@@ -237,6 +245,8 @@ function panel(){
     if(G.W.partial) f.push(['', 'Lineage partiel : ce classeur dépasse la limite de la Metadata API (20 000 nœuds).']);
     if(un) f.push(['', un+' champ'+(un>1?'s calculés sont supprimables':' calculé est supprimable')+' sans aucun changement : référencé'+(un>1?'s':'')+' nulle part dans le classeur (feuilles, champs, actions, visibilité dynamique, filtres).']);
     if(C.some(c=>c.why.includes('notwb'))) f.push(['info','Le XML de ce classeur n’a pas pu être analysé : aucun champ n’est proposé à la suppression.']);
+    const unH=C.filter(c=>!c.used&&c.hidden).length; if(un) f.push(['info','Champs supprimables : '+(un-unH)+' affiché'+((un-unH)>1?'s':'')+' et '+unH+' masqué'+(unH>1?'s':'')+' dans le volet Données.']);
+    const SU=all.filter(x=>x.t==='S'&&x.unused), suH=SU.filter(x=>x.hidden).length; if(SU.length) f.push(['', SU.length+' feuille'+(SU.length>1?'s inutilisées':' inutilisée')+' (ni tableau de bord, ni infobulle, ni action) : '+(SU.length-suH)+' affichée'+((SU.length-suH)>1?'s':'')+', '+suH+' masquée'+(suH>1?'s':'')+'.']);
     const ew=C.filter(c=>c.elsewhereOnly).length; if(ew) f.push(['info', ew+' champ'+(ew>1?'s':'')+' de source publiée non utilisé'+(ew>1?'s':'')+' ici mais utilisé'+(ew>1?'s':'')+' par d’autres classeurs : à conserver.']);
     if(emb && !pub) f.push(['info','Aucune source publiée : les connexions sont embarquées dans le classeur, donc non réutilisables et non certifiables.']);
     if(ext) f.push(['info', ext+' source'+(ext>1?'s':'')+' en extrait.']);
@@ -248,7 +258,7 @@ function panel(){
     const col=COLS[CI[n.t]];
     h+='<div><div class="eyebrow">'+esc(col.l.replace(/s$/,'').replace('Champs calculé','Champ calculé').replace('Tables BigQuery','Table').replace('Sources publiées','Source publiée').replace('Sources du classeur','Source du classeur').replace('Tableaux de bord','Tableau de bord'))+'</div><h2>'+esc(n.name)+'</h2></div>';
     if(n.t==='C'){
-      h+='<div class="meta">'+(n.dt?'<span class="pill blue">'+esc(n.dt)+'</span>':'')+(n.role?'<span class="pill">'+esc(n.role)+'</span>':'')+(n.used?(n.elsewhereOnly?'<span class="pill">Utilisé dans d’autres classeurs</span>':'<span class="pill">Utilisé</span>'):'<span class="pill red">Non utilisé · supprimable</span>')+(n.dsk && n.dsk.startsWith('P:')?'<span class="pill">Source publiée</span>':'')+'</div>';
+      h+='<div class="meta">'+(n.dt?'<span class="pill blue">'+esc(n.dt)+'</span>':'')+(n.role?'<span class="pill">'+esc(n.role)+'</span>':'')+(n.used?(n.elsewhereOnly?'<span class="pill">Utilisé dans d’autres classeurs</span>':'<span class="pill">Utilisé</span>'):'<span class="pill red">Non utilisé · supprimable</span><span class="pill">'+(n.hidden?'Masqué dans le volet Données':'Affiché dans le volet Données')+'</span>')+(n.dsk && n.dsk.startsWith('P:')?'<span class="pill">Source publiée</span>':'')+'</div>';
       { const W2={sheet:'utilisé directement dans une feuille de ce classeur', lineage:'utilisé par '+(n.nSheets||0)+' feuille(s), directement ou via un autre champ (lineage Tableau)', elsewhere:'source publiée : utilisé par '+(n.nSheets||0)+' feuille(s) dans '+(n.nWb||0)+' classeur(s) du site', dsfilter:'sert de filtre de source de données', dep:'référencé dans la formule d’un champ utilisé', twb:'référencé ailleurs dans le classeur : formule d’un autre champ, action, visibilité dynamique d’une zone, filtre, ensemble, groupe ou hiérarchie', notwb:'XML du classeur non analysable : considéré utilisé par prudence', unknown:'statut non remonté par la Metadata API : considéré utilisé par prudence', partial:'lineage partiel de ce classeur : considéré utilisé par prudence'};
         const refBy=[...(G.rdeps[n.k]||[])];
         let st='';
@@ -275,6 +285,11 @@ function panel(){
       h+='<div class="sec"><div class="eyebrow">Champs calculés · '+calcs.length+'</div>'+listOf(calcs,'Aucun.')+'</div>';
       h+='<div class="sec"><div class="eyebrow">Tableaux de bord</div>'+listOf(reach(n.k,'down','D'),'Aucun.')+'</div>';
     } else if(n.t==='S'){
+      { const pills=[]; if(n.unused===true) pills.push('<span class="pill red">Inutilisée</span>'); else if(n.unused===false) pills.push('<span class="pill">Utilisée</span>'); if(n.hidden!=null) pills.push('<span class="pill blue">'+(n.hidden?'Masquée':'Affichée')+'</span>'); h+='<div class="meta">'+pills.join('')+'</div>';
+        const L=[]; if(n.inDash) L.push(['info','placée dans au moins un tableau de bord']); if(n.inTip) L.push(['info','affichée en infobulle d’une autre feuille (viz in tooltip)']); if(n.inAct) L.push(['info','utilisée dans une action']);
+        if(n.unused) L.push(n.hidden?['ok','Inutilisée et masquée : ni tableau de bord, ni infobulle, ni action. Supprimable sans changement pour les utilisateurs.']:['', 'Inutilisée mais affichée : elle n’est dans aucun tableau de bord, mais reste publiée comme vue consultable. Masquez-la ou supprimez-la si personne ne l’ouvre directement.']);
+        if(n.unused==null) L.push(['info','XML du classeur non analysé : statut affiché/masqué inconnu.']);
+        h+='<div class="sec"><div class="eyebrow">Statut d’usage</div><ul class="flags">'+L.map(([c,t])=>'<li class="'+c+'">'+t+'</li>').join('')+'</ul></div>'; }
       h+='<div class="sec"><div class="eyebrow">Tableaux de bord</div>'+listOf(ofType(G.down[n.k],'D'),'Feuille hors tableau de bord.')+'</div>';
       h+='<div class="sec"><div class="eyebrow">Champs calculés utilisés</div>'+listOf(ofType(G.up[n.k],'C'),'Aucun.')+'</div>';
       if(n.fields && n.fields.length) h+='<div class="sec"><div class="eyebrow">Champs de source</div><div class="meta">'+[...new Set(n.fields)].slice(0,40).map(f=>'<span class="pill">'+esc(f)+'</span>').join('')+'</div></div>';
@@ -296,7 +311,7 @@ function scrollTo(k){ const el=$('lStage').querySelector('[data-k="'+CSS.escape(
 function kpis(){
   const k=[['Classeurs analysés', fmt(WBS.length)]];
   if(G){ const all=Object.values(G.N), C=all.filter(x=>x.t==='C');
-    k.push(['Tableaux de bord',fmt(all.filter(x=>x.t==='D'&&!x.virtual).length)],['Sources',fmt(all.filter(x=>x.t==='E').length)],['Tables BigQuery',fmt(all.filter(x=>x.t==='T').length)],['Champs calculés',fmt(C.length)],['Non utilisés',fmt(C.filter(c=>!c.used).length),C.some(c=>!c.used)]); }
+    k.push(['Tableaux de bord',fmt(all.filter(x=>x.t==='D'&&!x.virtual).length)],['Sources',fmt(all.filter(x=>x.t==='E').length)],['Tables BigQuery',fmt(all.filter(x=>x.t==='T').length)],['Champs calculés',fmt(C.length)],['Champs inutilisés',fmt(C.filter(c=>!c.used).length),C.some(c=>!c.used)],['Feuilles inutilisées',fmt(all.filter(x=>x.t==='S'&&x.unused).length),all.some(x=>x.t==='S'&&x.unused)]); }
   $('lKpis').innerHTML=k.map(([l,v,a])=>'<div class="kpi'+(a?' alert':'')+'"><b>'+v+'</b><span>'+l+'</span></div>').join('');
 }
 function dropList(q){
@@ -333,7 +348,7 @@ function mount(){
    '<label class="search" style="max-width:260px"><span style="position:absolute;left:-9999px">Chercher dans le lineage</span><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#93A2B6" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="lQ" type="search" placeholder="Champ, formule, table…" autocomplete="off"></label></div>'+
    '<div class="main" style="padding-top:10px"><div class="canvas" id="lCanvas" aria-label="Graphe de lineage"><div class="stage" id="lStage"></div><div class="welcome" id="lWelcome"><div><h3>Choisissez un classeur</h3><p>Recherchez-le par son nom, son projet ou son propriétaire.</p></div></div><div class="loading" id="lLoading" hidden><div class="ring" style="width:36px;height:36px;border-radius:50%;border:3px solid var(--blue-100);border-top-color:var(--blue);animation:spin 1s linear infinite"></div></div></div><aside class="panel" id="lPanel" aria-live="polite"></aside></div>';
   document.body.appendChild(app);
-  const chips=[['used','Champs utilisés'],['all','Tous les champs'],['unused','Non utilisés · supprimables']];
+  const chips=[['used','Utilisés'],['all','Tout'],['unused','Inutilisés (champs et feuilles)']];
   $('lCalc').innerHTML=chips.map(([k,l])=>'<button type="button" class="chip" data-c="'+k+'" aria-pressed="'+(st.calc===k)+'">'+l+'</button>').join('');
   $('lCalc').querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{ st.calc=b.dataset.c; $('lCalc').querySelectorAll('[data-c]').forEach(x=>x.setAttribute('aria-pressed',x===b)); draw(); });
   const pick=$('lPick');
