@@ -25,7 +25,7 @@ function cols(t){ const n=t.columns.map(c=>low(c.fieldName)); return key=>n.find
 const v = (row,i) => { if(i<0) return null; const c=row[i]; const x=c.value; return (x==null||x==='%null%'||c.formattedValue==='Null')?null:x; };
 const toT = x => { if(x==null||x==='') return null; if(x instanceof Date) return x.getTime(); const t=Date.parse(String(x).replace(' ','T')); return isNaN(t)?null:t; };
 const num = x => x==null ? 0 : +x || 0;
-function licOf(role, lt){ const r=low(role)+' '+low(lt); if(r.includes('unlicensed')) return 'Unlicensed'; if(r.includes('creator')) return 'Creator'; if(r.includes('explorer')) return 'Explorer'; if(r.includes('viewer')) return 'Viewer'; return lt||'Unlicensed'; }
+function licOf(role, lt){ const r=low(role)+' '+low(lt); if(r.includes('unlicensed')) return 'Unlicensed'; if(r.includes('creator')) return 'Creator'; if(r.includes('explorer')) return 'Explorer'; if(r.includes('viewer')) return 'Viewer'; return 'Unlicensed'; }
 function statusOf(t){ if(t==null) return 'n'; const d=(NOW-t)/DAY; return d<=30?'a':d<=90?'w':'d'; }
 
 async function load(){
@@ -198,7 +198,9 @@ function mount(){
   $('licQ').addEventListener('input',e=>{ st.q=e.target.value.trim(); main(); });
 }
 window.LIC_START = async function(){
-  mount(); await load(); kpis(); tools(); main(); panel();
+  mount();
+  try{ await load(); }catch(e){ console.error('[licences] load', e); throw e; }
+  try{ kpis(); tools(); main(); panel(); }catch(e){ console.error('[licences] render', e); $('licMain').innerHTML='<p class="hint">Erreur d’affichage : '+esc(e&&e.message||e)+'</p>'; }
   const ws=tableau.extensions.dashboardContent.dashboard.worksheets.find(w=>w.name==='Lic_Users');
   try{ ws.addEventListener(tableau.TableauEventType.SummaryDataChanged, async()=>{ await load(); kpis(); main(); panel(); }); }catch(e){}
 };
