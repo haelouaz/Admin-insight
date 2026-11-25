@@ -504,7 +504,7 @@ async function load(){
   $('tabs').querySelector('[data-tab=lin]').hidden=!HAS_LIN; showTab(curTab);
 }
 let HAS_LIN=false, linReady=null, curTab='arbo';
-function loadLin(){ if(!linReady) linReady=new Promise((ok,ko)=>{ const s=document.createElement('script'); s.src='lineage.js?v=7'; s.onload=()=>window.LIN_START().then(ok,ko); s.onerror=ko; document.body.appendChild(s); }); return linReady; }
+function loadLin(){ if(!linReady) linReady=new Promise((ok,ko)=>{ const s=document.createElement('script'); s.src='lineage.js?v=8'; s.onload=()=>window.LIN_START().then(ok,ko); s.onerror=ko; document.body.appendChild(s); }); return linReady; }
 function showTab(t){ curTab=t; $('app').hidden = t!=='arbo'; const l=$('lin'); if(l) l.hidden = t!=='lin'; $('topnav').hidden=false;
   $('tabs').querySelectorAll('.tab').forEach(b=>b.setAttribute('aria-selected', b.dataset.tab===t));
   $('navInfo').textContent = t==='arbo' ? $('sub').textContent : 'Lineage · instantané de la Metadata API Tableau'; }

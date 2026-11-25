@@ -4,12 +4,12 @@
 'use strict';
 const DATA = 'Lineage_Data', LIST = 'Lineage_WB';
 const COLS = [
-  {k:'T', l:'Tables BigQuery',      c:'#0B1F3A', i:'T'},
-  {k:'P', l:'Sources publiées',     c:'#003A78', i:'P'},
-  {k:'E', l:'Sources du classeur',  c:'#004E9F', i:'S'},
-  {k:'C', l:'Champs calculés',      c:'#6B4FBB', i:'ƒ'},
+  {k:'D', l:'Tableaux de bord',     c:'#C98A00', i:'◫'},
   {k:'S', l:'Feuilles',             c:'#1F8A50', i:'▦'},
-  {k:'D', l:'Tableaux de bord',     c:'#C98A00', i:'◫'}
+  {k:'C', l:'Champs calculés',      c:'#6B4FBB', i:'ƒ'},
+  {k:'E', l:'Sources du classeur',  c:'#004E9F', i:'S'},
+  {k:'P', l:'Sources publiées',     c:'#003A78', i:'P'},
+  {k:'T', l:'Tables BigQuery',      c:'#0B1F3A', i:'T'}
 ];
 const CI = Object.fromEntries(COLS.map((c,i)=>[c.k,i]));
 const CW = 250, GAP = 72, NH = 34, NG = 8, TOP = 46, PADL = 16;
@@ -22,7 +22,7 @@ const dfr = t => { const d=new Date(t); return isNaN(d) ? '—' : d.toLocaleDate
 const low = s => String(s||'').trim().toLowerCase();
 
 let WD=null, WL=null, WBS=[], cur=null, G=null;
-const st = { sel:null, calc:'used', q:'' };
+const st = { sel:null, path:{}, calc:'used', q:'' };
 
 /* ---------- lecture Tableau ---------- */
 async function readTable(ws){
@@ -116,6 +116,8 @@ function buildGraph(rows){
   const clean = c => { const owners = c.dsk && c.dsk.startsWith('P:') ? (eByP[c.ds]||[]) : [c.ds]; return owners.some(e=>{ const en=N[key('E',e)]; return en && zset.has(low(en.name)+'|'+low(c.name)); }); };
   C.forEach(c=>{ if(used.has(c.k)) return; if(!twbOk){ (why[c.k]=why[c.k]||[]).push('notwb'); used.add(c.k); } else if(!clean(c)){ (why[c.k]=why[c.k]||[]).push('twb'); used.add(c.k); } });
   C.forEach(n=>{ n.used=used.has(n.k); n.why=why[n.k]||[]; n.elsewhereOnly = n.why.length && n.why.every(x=>x==='elsewhere'); });
+  const orph=Object.values(N).filter(n=>n.t==='S' && ![...(down[n.k]||[])].some(k=>k.startsWith('D:')));
+  if(orph.length){ N['D:__orphan']={k:'D:__orphan',t:'D',id:'__orphan',name:'Feuilles hors tableau de bord',virtual:true}; orph.forEach(sn=>link(sn.k,'D:__orphan')); }
   const rdeps={}; Object.entries(deps).forEach(([c,set])=>set.forEach(d=>(rdeps[d]=rdeps[d]||new Set()).add(c)));
   return {W, N, up, down, deps, rdeps};
 }
@@ -136,48 +138,68 @@ function visible(n){
   if(st.q){ const q=low(st.q); if(!low(n.name).includes(q) && !(n.formula && low(n.formula).includes(q))) return false; }
   return true;
 }
-function order(nodes){
-  const pos = {};
-  const byCol = COLS.map(c=>nodes.filter(n=>n.t===c.k));
-  const bary = (n, dir) => { const nb=[...(dir==='down'?(G.down[n.k]||[]):(G.up[n.k]||[]))].filter(k=>pos[k]!=null); return nb.length ? nb.reduce((a,k)=>a+pos[k],0)/nb.length : 1e6; };
-  const set = arr => arr.forEach((n,i)=>pos[n.k]=i);
-  byCol[5].sort((a,b)=>a.name.localeCompare(b.name,'fr')); set(byCol[5]);
-  for(let c=4;c>=0;c--){ byCol[c].sort((a,b)=>bary(a,'down')-bary(b,'down') || a.name.localeCompare(b.name,'fr')); set(byCol[c]); }
-  return byCol;
+/* ---------- navigation en colonnes : tableau de bord → feuilles → champs → sources → tables ----------
+   Chaque colonne ne montre que ce qui alimente l'élément choisi dans une colonne précédente. */
+function upOf(k, t){ return reach(k,'up',t); }
+function columns(){
+  const q=low(st.q), match=n=> !q || low(n.name).includes(q) || (n.formula && low(n.formula).includes(q));
+  const cols=[]; let anc=null;
+  COLS.forEach((c,i)=>{
+    let items;
+    if(anc) items=upOf(anc,c.k).map(k=>G.N[k]);
+    else items=Object.values(G.N).filter(n=>n.t===c.k && (c.k!=='C' || visible(n)));
+    items=items.filter(n=>n && (match(n) || st.path[i]===n.k));
+    const parentS = anc && anc.startsWith('S:') ? anc : null;
+    items.forEach(n=>{ n._direct = parentS && n.t==='C' ? (G.down[n.k]||new Set()).has(parentS) : null; });
+    items.sort((a,b)=> (a.t==='C' && parentS ? (b._direct-a._direct) : 0) || (a.virtual?1:0)-(b.virtual?1:0) || a.name.localeCompare(b.name,'fr'));
+    cols.push({c, i, items, anc});
+    if(st.path[i] && items.some(n=>n.k===st.path[i])) anc=st.path[i];
+  });
+  return cols;
 }
 function draw(){
-  const host=$('lCanvas'); const stage=$('lStage');
+  const stage=$('lStage');
   if(!G){ stage.innerHTML=''; stage.style.width=stage.style.height='0'; return; }
-  const hi = st.sel && G.N[st.sel] ? closure(st.sel) : null;
-  // focus : on n'affiche que la chaîne amont/aval de l'élément choisi
-  const all = Object.values(G.N).filter(n=> n.k===st.sel || (visible(n) && (!hi || hi.has(n.k))));
-  const byCol0 = order(all);
-  const live = COLS.map((c,i)=>i).filter(i=>byCol0[i].length);
-  const byCol = live.map(i=>byCol0[i]), CC = live.map(i=>COLS[i]);
-  const H = Math.max(...byCol.map(c=>c.length),1)*(NH+NG)+TOP+20, Wd = Math.max(CC.length,1)*(CW+GAP)-GAP+PADL*2;
-  let h = '<svg class="edges" width="'+Wd+'" height="'+H+'" id="lEdges"></svg>';
-  CC.forEach((c,i)=>{ h+='<div class="colh" style="position:absolute;left:'+(PADL+i*(CW+GAP))+'px;width:'+CW+'px;top:0">'+esc(c.l)+' <b>'+byCol[i].length+'</b></div>'; });
-  const P = {};
-  byCol.forEach((col,i)=>col.forEach((n,j)=>{
-    const x=PADL+i*(CW+GAP), y=TOP+j*(NH+NG); P[n.k]={x,y};
-    const cls = ['ln', n.k===st.sel?'sel':'', hi?'on':'', (n.t==='C'&&!n.used)?'unused':''].join(' ');
-    const tag = n.t==='E' ? (n.mode==='extract'?'EXTRACT':'LIVE') : n.t==='C' && !n.used ? 'NON UTILISÉ' : n.t==='T' && n.ct && !/bigquery/i.test(n.ct) ? n.ct.toUpperCase().slice(0,10) : '';
-    h+='<button type="button" class="'+cls+'" data-k="'+esc(n.k)+'" style="left:'+x+'px;top:'+y+'px;width:'+CW+'px" title="'+esc(n.full||n.name)+'"><span class="ic" style="background:'+COLS[CI[n.t]].c+'">'+COLS[CI[n.t]].i+'</span><span class="nm">'+esc(n.name)+'</span>'+(tag?'<span class="k">'+esc(tag)+'</span>':'')+'</button>';
-  }));
+  // nettoie un chemin devenu incohérent
+  const cols0=columns(); cols0.forEach(col=>{ const k=st.path[col.i]; if(k && !col.items.some(n=>n.k===k)) delete st.path[col.i]; });
+  const cols=columns().filter(col=>col.items.length || col.anc);
+  const H=Math.max(...cols.map(c=>c.items.length),1)*(NH+NG)+TOP+20, Wd=Math.max(cols.length,1)*(CW+GAP)-GAP+PADL*2;
+  let h='<svg class="edges" width="'+Wd+'" height="'+H+'" id="lEdges"></svg>';
+  const P={};
+  cols.forEach((col,ci)=>{
+    const x=PADL+ci*(CW+GAP);
+    h+='<div class="colh" style="position:absolute;left:'+x+'px;width:'+CW+'px;top:0">'+esc(col.c.l)+' <b>'+col.items.length+'</b></div>';
+    if(!col.items.length) h+='<div class="hint" style="position:absolute;left:'+x+'px;top:'+TOP+'px;width:'+CW+'px">Aucun élément.</div>';
+    col.items.forEach((n,j)=>{
+      const y=TOP+j*(NH+NG); P[n.k]={x,y,ci};
+      const onPath=st.path[col.i]===n.k;
+      const cls=['ln', n.k===st.sel?'sel':'', onPath?'on':'', (n.t==='C'&&!n.used)?'unused':''].join(' ');
+      const tag = n.t==='E' ? (n.mode==='extract'?'EXTRACT':'LIVE') : n.t==='C' && !n.used ? 'NON UTILISÉ' : n.t==='C' && n._direct===false ? 'INDIRECT' : n.t==='T' && n.ct && !/bigquery/i.test(n.ct) ? n.ct.toUpperCase().slice(0,10) : '';
+      const cnt = n.t==='D' ? upOf(n.k,'S').length : n.t==='S' ? upOf(n.k,'C').length : 0;
+      h+='<button type="button" class="'+cls+'" data-k="'+esc(n.k)+'" data-c="'+col.i+'" style="left:'+x+'px;top:'+y+'px;width:'+CW+'px" title="'+esc(n.full||n.name)+'"><span class="ic" style="background:'+COLS[CI[n.t]].c+'">'+COLS[CI[n.t]].i+'</span><span class="nm">'+esc(n.name)+'</span>'+(tag?'<span class="k">'+esc(tag)+'</span>':'')+(cnt?'<span class="cnt">'+cnt+'</span>':'')+'<span class="chev" aria-hidden="true">›</span></button>';
+    });
+  });
   stage.innerHTML=h; stage.style.width=Wd+'px'; stage.style.height=H+'px';
+  // liens : uniquement de l'élément choisi vers la colonne suivante
   let paths='';
-  Object.entries(G.down).forEach(([a,bs])=>bs.forEach(b=>{
-    const A=P[a], B=P[b]; if(!A||!B) return;
-    const x1=A.x+CW, y1=A.y+NH/2, x2=B.x, y2=B.y+NH/2, mx=(x1+x2)/2;
-    const on = hi && hi.has(a) && hi.has(b);
-    paths+='<path class="'+(hi?(on?'on':'dim'):'')+'" d="M'+x1+' '+y1+'C'+mx+' '+y1+' '+mx+' '+y2+' '+x2+' '+y2+'"/>';
-  }));
+  cols.forEach((col,ci)=>{ const k=st.path[col.i]; const A=k&&P[k]; const nx=cols[ci+1]; if(!A||!nx) return;
+    nx.items.forEach(n=>{ const B=P[n.k]; const x1=A.x+CW, y1=A.y+NH/2, x2=B.x, y2=B.y+NH/2, mx=(x1+x2)/2; paths+='<path class="on" d="M'+x1+' '+y1+'C'+mx+' '+y1+' '+mx+' '+y2+' '+x2+' '+y2+'"/>'; }); });
   $('lEdges').innerHTML=paths;
-  stage.querySelectorAll('.ln').forEach(b=>b.onclick=()=>select(b.dataset.k));
+  stage.querySelectorAll('.ln').forEach(b=>b.onclick=()=>select(b.dataset.k,+b.dataset.c));
 }
-function focusBar(){ const f=$('lFocus'); if(!f) return; const n=st.sel&&G&&G.N[st.sel]; if(!n){ f.hidden=true; return; } f.hidden=false; f.innerHTML='<span class="fl">Filtré sur</span><span class="ic" style="background:'+COLS[CI[n.t]].c+'">'+COLS[CI[n.t]].i+'</span><b>'+esc(n.name)+'</b><span class="x" aria-hidden="true">✕</span>'; f.title='Afficher tout le classeur'; }
-function select(k){ st.sel = (st.sel===k ? null : k); draw(); panel(); focusBar(); $('lCanvas').scrollTo({left:0,top:0}); }
-
+function deepest(){ const ks=Object.keys(st.path).map(Number).sort((a,b)=>a-b); return ks.length? st.path[ks[ks.length-1]] : null; }
+function focusBar(){ const f=$('lFocus'); if(!f) return; const ks=Object.keys(st.path).map(Number).sort((a,b)=>a-b); if(!ks.length||!G){ f.hidden=true; return; } f.hidden=false;
+  f.innerHTML='<span class="fl">Filtré sur</span>'+ks.map(i=>{ const n=G.N[st.path[i]]; return '<span class="ic" style="background:'+COLS[CI[n.t]].c+'">'+COLS[CI[n.t]].i+'</span><b>'+esc(n.name)+'</b>'; }).join('<span class="fl">›</span>')+'<span class="x" aria-hidden="true">✕</span>'; f.title='Afficher tout le classeur'; }
+function select(k, ci){
+  if(ci==null) ci=CI[G.N[k].t];
+  if(st.path[ci]===k){ Object.keys(st.path).forEach(i=>{ if(+i>=ci) delete st.path[i]; }); }
+  else { Object.keys(st.path).forEach(i=>{ if(+i>=ci) delete st.path[i]; }); st.path[ci]=k;
+    // élément choisi depuis le panneau, hors des colonnes affichées : on repart de lui
+    if(!columns()[ci].items.some(n=>n.k===k)){ st.path={}; st.path[ci]=k; } }
+  st.sel=deepest(); draw(); panel(); focusBar();
+  const el=$('lStage').querySelector('[data-k="'+CSS.escape(k)+'"]'); if(el) el.scrollIntoView({block:'nearest',inline:'nearest'});
+  $('lCanvas').scrollTo({top:0, left:$('lCanvas').scrollLeft});
+}
 /* ---------- formules ---------- */
 function hl(src, n){
   const pool = {}; if(n){ (n.deps||[]).forEach(k=>{ const d=G.N[k]; if(d) pool[low(d.name)]=k; }); }
@@ -208,7 +230,7 @@ function panel(){
   if(!n){
     const C=all.filter(x=>x.t==='C'), un=C.filter(c=>!c.used).length, ext=all.filter(x=>x.t==='E'&&x.mode==='extract').length, emb=all.filter(x=>x.t==='E').length, pub=cnt('P');
     h+='<div><div class="eyebrow">Classeur · '+esc(G.W.proj||'')+'</div><h2>'+esc(G.W.name)+'</h2></div>';
-    h+='<div class="grid2"><div class="cell"><span>Tableaux de bord</span><b>'+cnt('D')+'</b></div><div class="cell"><span>Feuilles</span><b>'+cnt('S')+'</b></div><div class="cell"><span>Sources</span><b>'+emb+(pub?' <small style="font-size:12px;color:var(--muted)">dont '+pub+' publiée'+(pub>1?'s':'')+'</small>':'')+'</b></div><div class="cell"><span>Tables BigQuery</span><b>'+cnt('T')+'</b></div><div class="cell"><span>Champs calculés</span><b>'+C.length+'</b></div><div class="cell"><span>Non utilisés</span><b>'+un+'</b></div><div class="cell"><span>Propriétaire</span><b class="sm">'+esc((G.W.own||'—').split('@')[0])+'</b></div><div class="cell"><span>Modifié le</span><b class="sm">'+dfr(G.W.upd)+'</b></div></div>';
+    h+='<div class="grid2"><div class="cell"><span>Tableaux de bord</span><b>'+all.filter(x=>x.t==='D'&&!x.virtual).length+'</b></div><div class="cell"><span>Feuilles</span><b>'+cnt('S')+'</b></div><div class="cell"><span>Sources</span><b>'+emb+(pub?' <small style="font-size:12px;color:var(--muted)">dont '+pub+' publiée'+(pub>1?'s':'')+'</small>':'')+'</b></div><div class="cell"><span>Tables BigQuery</span><b>'+cnt('T')+'</b></div><div class="cell"><span>Champs calculés</span><b>'+C.length+'</b></div><div class="cell"><span>Non utilisés</span><b>'+un+'</b></div><div class="cell"><span>Propriétaire</span><b class="sm">'+esc((G.W.own||'—').split('@')[0])+'</b></div><div class="cell"><span>Modifié le</span><b class="sm">'+dfr(G.W.upd)+'</b></div></div>';
     const f=[];
     if(G.W.partial) f.push(['', 'Lineage partiel : ce classeur dépasse la limite de la Metadata API (20 000 nœuds).']);
     if(un) f.push(['', un+' champ'+(un>1?'s calculés sont supprimables':' calculé est supprimable')+' sans aucun changement : référencé'+(un>1?'s':'')+' nulle part dans le classeur (feuilles, champs, actions, visibilité dynamique, filtres).']);
@@ -263,8 +285,8 @@ function panel(){
     h+='<button type="button" class="ghost" id="lBack" style="align-self:flex-start">← Vue du classeur</button>';
   }
   p.innerHTML=h;
-  p.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{ st.sel=b.dataset.k; draw(); panel(); focusBar(); $('lCanvas').scrollTo({left:0,top:0}); });
-  const bk=$('lBack'); if(bk) bk.onclick=()=>{ st.sel=null; draw(); panel(); focusBar(); };
+  p.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>select(b.dataset.k));
+  const bk=$('lBack'); if(bk) bk.onclick=()=>{ st.path={}; st.sel=null; draw(); panel(); focusBar(); };
 }
 function scrollTo(k){ const el=$('lStage').querySelector('[data-k="'+CSS.escape(k)+'"]'); if(el) el.scrollIntoView({block:'center',inline:'nearest',behavior:'smooth'}); }
 
@@ -272,7 +294,7 @@ function scrollTo(k){ const el=$('lStage').querySelector('[data-k="'+CSS.escape(
 function kpis(){
   const k=[['Classeurs analysés', fmt(WBS.length)]];
   if(G){ const all=Object.values(G.N), C=all.filter(x=>x.t==='C');
-    k.push(['Tableaux de bord',fmt(all.filter(x=>x.t==='D').length)],['Sources',fmt(all.filter(x=>x.t==='E').length)],['Tables BigQuery',fmt(all.filter(x=>x.t==='T').length)],['Champs calculés',fmt(C.length)],['Non utilisés',fmt(C.filter(c=>!c.used).length),C.some(c=>!c.used)]); }
+    k.push(['Tableaux de bord',fmt(all.filter(x=>x.t==='D'&&!x.virtual).length)],['Sources',fmt(all.filter(x=>x.t==='E').length)],['Tables BigQuery',fmt(all.filter(x=>x.t==='T').length)],['Champs calculés',fmt(C.length)],['Non utilisés',fmt(C.filter(c=>!c.used).length),C.some(c=>!c.used)]); }
   $('lKpis').innerHTML=k.map(([l,v,a])=>'<div class="kpi'+(a?' alert':'')+'"><b>'+v+'</b><span>'+l+'</span></div>').join('');
 }
 function dropList(q){
@@ -291,7 +313,7 @@ async function openWb(id){
     await WD.applyFilterAsync('wb',[id],tableau.FilterUpdateType.Replace);
     const rows=(await readRows(WD)).filter(r=>r.wb===id);
     cur=id; G=buildGraph(rows); if(!G.W) G.W={id, name:w.name, proj:w.proj, own:w.own, upd:w.upd};
-    st.sel=null; focusBar(); $('lSub').textContent=w.proj+' · '+w.name;
+    st.sel=null; st.path={}; focusBar(); $('lSub').textContent=w.proj+' · '+w.name;
     try{ localStorage.setItem('lin.wb',id); }catch(e){}
   }catch(e){ G=null; $('lWelcome').hidden=false; $('lWelcome').innerHTML='<div><h3>Lecture impossible</h3><p>Le lineage de ce classeur n’a pas pu être lu.</p></div>'; }
   $('lLoading').hidden=true; kpis(); draw(); panel(); $('lCanvas').scrollTo({left:0,top:0});
@@ -299,7 +321,7 @@ async function openWb(id){
 
 /* ---------- démarrage ---------- */
 function mount(){
-  const css=document.createElement('link'); css.rel='stylesheet'; css.href='lineage.css?v=7'; document.head.appendChild(css);
+  const css=document.createElement('link'); css.rel='stylesheet'; css.href='lineage.css?v=8'; document.head.appendChild(css);
   const app=document.createElement('div'); app.className='app lin'; app.id='lin'; app.hidden=true;
   app.innerHTML=
    '<header class="head"><div class="brand"><div class="mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="5" rx="1.5"/><rect x="15" y="4" width="6" height="5" rx="1.5"/><rect x="9" y="15" width="6" height="5" rx="1.5"/><path d="M6 9v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9M12 13v2"/></svg></div><div><h1>Lineage · Tableau France</h1><p id="lSub">Du tableau de bord aux tables BigQuery</p></div></div><div class="kpis" id="lKpis"></div></header>'+
@@ -318,7 +340,7 @@ function mount(){
   pick.addEventListener('keydown',e=>{ if(e.key==='Escape') $('lDrop').hidden=true; if(e.key==='Enter'){ const b=$('lDrop').querySelector('[data-w]'); if(b) b.click(); } });
   document.addEventListener('click',e=>{ if(!e.target.closest('.picker')) $('lDrop').hidden=true; });
   $('lQ').addEventListener('input',e=>{ st.q=e.target.value.trim(); draw(); });
-  $('lFocus').onclick=()=>{ st.sel=null; draw(); panel(); focusBar(); };
+  $('lFocus').onclick=()=>{ st.path={}; st.sel=null; draw(); panel(); focusBar(); $('lCanvas').scrollTo({left:0,top:0}); };
 }
 window.LIN_START = async function(){
   mount();

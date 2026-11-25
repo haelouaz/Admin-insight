@@ -53,3 +53,10 @@ svg.edges path.dim{stroke:#EDF1F6}
 .focus b{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .focus .x{font-size:11px;margin-left:2px}
 .focus:hover{background:var(--blue-100)}
+
+.ln .cnt{font-size:10.5px;font-weight:650;color:var(--blue);background:var(--blue-50);border-radius:99px;padding:0 7px;font-variant-numeric:tabular-nums}
+.ln .chev{color:#B5C0CF;font-size:14px;line-height:1}
+.ln.on .chev,.ln.sel .chev{color:var(--blue)}
+.ln.on{background:var(--blue-50)}
+.focus{max-width:none}
+.focus b{max-width:220px}
