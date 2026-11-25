@@ -24,6 +24,7 @@ TYPE    : pile système (aucune police externe), 4 tailles.
 }
 *{box-sizing:border-box;min-width:0}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.45 var(--font);-webkit-font-smoothing:antialiased}
+body{display:flex;flex-direction:column}
 button{font:inherit;color:inherit;cursor:pointer}
 :focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:6px}
 [hidden]{display:none!important}
@@ -38,7 +39,18 @@ button{font:inherit;color:inherit;cursor:pointer}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.gate .ring{animation:none}}
 
-.app{display:flex;flex-direction:column;height:100%}
+.app{display:flex;flex-direction:column;flex:1;min-height:0}
+.topnav{flex:none;display:flex;align-items:center;gap:18px;padding:0 18px;height:52px;background:var(--surface);border-bottom:1px solid var(--line)}
+.topnav .tt{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;letter-spacing:-.01em;white-space:nowrap}
+.tabs{display:flex;gap:2px;background:var(--bg);border-radius:99px;padding:3px}
+.tab{height:32px;padding:0 16px;border:0;border-radius:99px;background:none;font-size:13px;font-weight:600;color:var(--ink-2);display:inline-flex;align-items:center;gap:7px}
+.tab:hover{color:var(--blue)}
+.tab[aria-selected=true]{background:var(--surface);color:var(--blue);box-shadow:0 1px 3px rgba(11,31,58,.12)}
+.tab[aria-busy=true]{opacity:.6}
+.topnav .info{margin-left:auto;font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app .head .brand{display:none}
+.cta.alt{background:var(--blue-50);color:var(--blue)}
+.cta.alt:hover{background:var(--blue-100)}
 .head{background:var(--surface);border-bottom:1px solid var(--line);padding:9px 18px;display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center}
 .brand{display:flex;align-items:center;gap:10px;flex:0 1 330px}
 .mark{width:34px;height:34px;border-radius:9px;background:var(--blue);display:grid;place-items:center;flex:none}
@@ -145,6 +157,15 @@ svg.links path.on{stroke:var(--blue);stroke-width:2}
     <p id="gateText">Le contenu s’affiche uniquement à l’intérieur d’un tableau de bord Tableau Cloud autorisé.</p>
   </div>
 </div>
+
+<nav class="topnav" id="topnav" hidden aria-label="Pages">
+  <div class="tt"><div class="mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="2.2"/><circle cx="19" cy="5" r="2.2"/><circle cx="19" cy="19" r="2.2"/><path d="M7.2 12h4M11.2 12c3 0 3-7 5.6-7M11.2 12c3 0 3 7 5.6 7"/></svg></div>Tour de contrôle · Tableau France</div>
+  <div class="tabs" role="tablist" id="tabs">
+    <button class="tab" role="tab" type="button" data-tab="arbo" aria-selected="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 5h6M4 12h6M4 19h6M14 5h6M14 12h6"/></svg>Arborescence</button>
+    <button class="tab" role="tab" type="button" data-tab="lin" aria-selected="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="5" rx="1.5"/><rect x="15" y="4" width="6" height="5" rx="1.5"/><rect x="9" y="15" width="6" height="5" rx="1.5"/><path d="M6 9v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9M12 13v2"/></svg>Lineage</button>
+  </div>
+  <div class="info" id="navInfo"></div>
+</nav>
 
 <div class="app" id="app" hidden>
   <header class="head">
@@ -459,10 +480,12 @@ function panel(){
       +'<div class="cell"><span>Feuilles</span><b>'+n.sheets+'</b></div><div class="cell"><span>Niveau</span><b>'+a.length+'</b></div>'
       +'<div class="cell" style="grid-column:1/-1"><span>Propriétaire</span><b class="sm">'+esc(n.owner||'—')+'</b></div></div>';
     h+=flagList(f);
+    if(HAS_LIN) h+='<button type="button" class="cta alt" id="goLin" style="border:0;cursor:pointer;width:100%">Voir le lineage de ce classeur →</button>';
     if(/^https:\/\/[a-z0-9.-]+\.tableau\.com\//i.test(n.link)) h+='<a class="cta" href="'+esc(n.link)+'" target="_blank" rel="noopener noreferrer">Ouvrir le classeur ↗</a>';
   }
   h+='<p class="note">Actif ≤ 30 j · À surveiller 31–90 j · Dormant &gt; 90 j, d’après le dernier accès. Consultations = événements « Access View » (Admin Insights · TS Events). Environnement déduit du nom du projet (DEV, QUAL, Archive…).</p>';
   p.innerHTML=h;
+  const gl=$('goLin'); if(gl){ const nn=byId[state.sel]; gl.onclick=()=>goLin({name:nn.name, proj:(byId[nn.parent]||{}).name||''}); }
   p.querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>focusNode(b.dataset.id));
 }
 
@@ -475,20 +498,29 @@ async function load(){
   if(!agg[ROOT] || (!agg[ROOT].wb && !(kids[ROOT]||[]).length)) throw new Error('empty');
   Object.values(els).forEach(e=>e.remove()); els={};
   state.open=new Set([ROOT]); state.sel=ROOT;
-  $('gate').hidden=true; $('app').hidden=false;
+  $('gate').hidden=true;
   header(); render();
+  $('tabs').querySelector('[data-tab=lin]').hidden=!HAS_LIN; showTab(curTab);
 }
+let HAS_LIN=false, linReady=null, curTab='arbo';
+function loadLin(){ if(!linReady) linReady=new Promise((ok,ko)=>{ const s=document.createElement('script'); s.src='lineage.js?v=3'; s.onload=()=>window.LIN_START().then(ok,ko); s.onerror=ko; document.body.appendChild(s); }); return linReady; }
+function showTab(t){ curTab=t; $('app').hidden = t!=='arbo'; const l=$('lin'); if(l) l.hidden = t!=='lin'; $('topnav').hidden=false;
+  $('tabs').querySelectorAll('.tab').forEach(b=>b.setAttribute('aria-selected', b.dataset.tab===t));
+  $('navInfo').textContent = t==='arbo' ? $('sub').textContent : 'Lineage · instantané de la Metadata API Tableau'; }
+async function goLin(open){ const tb=$('tabs').querySelector('[data-tab=lin]'); tb.setAttribute('aria-busy','true');
+  try{ await loadLin(); showTab('lin'); if(open && window.LIN_OPEN_BY_NAME) window.LIN_OPEN_BY_NAME(open.name, open.proj); }
+  catch(e){ lock('Lineage indisponible','Le module de lineage n’a pas pu être chargé.'); }
+  tb.removeAttribute('aria-busy'); }
+$('tabs').querySelectorAll('.tab').forEach(b=>b.onclick=()=>{ if(b.dataset.tab==='lin') goLin(); else showTab('arbo'); });
 async function boot(){
   const inFrame = window.parent!==window;
   if(!window.tableau || !tableau.extensions || !inFrame){ lock('Accès réservé','Cette page ne s’affiche que comme extension dans un tableau de bord Tableau Cloud. Aucune donnée n’est stockée dans ce fichier.'); return; }
   const t=setTimeout(()=>lock('Connexion impossible','L’extension n’a pas pu se connecter à Tableau. Vérifiez qu’elle est autorisée sur le site.'),15000);
   try{
     await tableau.extensions.initializeAsync(); clearTimeout(t);
-    if(tableau.extensions.dashboardContent.dashboard.worksheets.some(w=>w.name==='Lineage_Data')){
-      const s=document.createElement('script'); s.src='lineage.js?v=2';
-      s.onload=()=>window.LIN_START(); s.onerror=()=>lock('Module indisponible','Le module de lineage n’a pas pu être chargé.');
-      document.body.appendChild(s); return;
-    }
+    const sheets=tableau.extensions.dashboardContent.dashboard.worksheets.map(w=>w.name);
+    HAS_LIN = sheets.includes('Lineage_Data');
+    if(!sheets.includes(SHEET) && HAS_LIN){ $('gate').hidden=true; await goLin(); $('tabs').hidden=true; return; }
     WS =tableau.extensions.dashboardContent.dashboard.worksheets.find(w=>w.name===SHEET);
     WU = tableau.extensions.dashboardContent.dashboard.worksheets.find(w=>w.name===USAGE) || null;
     if(!WS){ lock('Feuille de données absente','Ajoutez la feuille « '+SHEET+' » (Admin Insights · Site Content) à ce tableau de bord.'); return; }

@@ -295,12 +295,17 @@ window.LIN_START = async function(){
     const rows = await readRows(WL||WD);
     const seen=new Set();
     WBS = rows.filter(r=>r.type==='W' && r.wb!=='__none__' && !seen.has(r.wb) && seen.add(r.wb)).map(r=>{ const [proj,own,upd]=r.info.split('|'); return {id:r.wb,name:r.name,proj:proj||'',own:own||'',upd:upd||''}; });
-    gate.hidden=true; $('app').hidden=true; $('lin').hidden=false;
     kpis(); panel(); draw();
     let last=null; try{ last=localStorage.getItem('lin.wb'); }catch(e){}
     if(last && WBS.some(w=>w.id===last)) openWb(last);
   }catch(e){
-    $('gateTitle').textContent='Données indisponibles'; $('gateText').textContent='Lecture des feuilles « '+LIST+' » / « '+DATA+' » impossible.'; gate.hidden=false; gate.classList.add('locked');
+    $('gateTitle').textContent='Données indisponibles'; $('gateText').textContent='Lecture des feuilles « '+LIST+' » / « '+DATA+' » impossible.'; gate.hidden=false; gate.classList.add('locked'); throw e;
   }
+};
+window.LIN_OPEN_BY_NAME = function(name, proj){
+  const n=low(name), p=low(proj).replace(/^[^a-z0-9]+/,'');
+  const hits=WBS.filter(w=>low(w.name)===n);
+  const w=hits.find(x=>low(x.proj).replace(/^[^a-z0-9]+/,'')===p) || hits[0];
+  if(w) openWb(w.id); else { $('lPick').value=name; dropList(name); }
 };
 })();
