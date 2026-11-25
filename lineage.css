@@ -60,3 +60,5 @@ svg.edges path.dim{stroke:#EDF1F6}
 .ln.on{background:var(--blue-50)}
 .focus{max-width:none}
 .focus b{max-width:220px}
+
+.ln .k.red{background:#FFF0F2;color:#9A0016}

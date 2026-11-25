@@ -182,9 +182,9 @@ function draw(){
       const y=TOP+j*(NH+NG); P[n.k]={x,y,ci};
       const onPath=st.path[col.i]===n.k;
       const cls=['ln', n.k===st.sel?'sel':'', onPath?'on':'', ((n.t==='C'&&!n.used)||(n.t==='S'&&n.unused))?'unused':''].join(' ');
-      const tag = n.t==='E' ? (n.mode==='extract'?'EXTRACT':'LIVE') : n.t==='C' && !n.used ? (n.hidden?'INUTILISÉ · MASQUÉ':'INUTILISÉ · AFFICHÉ') : n.t==='S' && n.unused ? (n.hidden?'INUTILISÉE · MASQUÉE':'INUTILISÉE · AFFICHÉE') : n.t==='C' && n._direct===false ? 'INDIRECT' : n.t==='T' && n.ct && !/bigquery/i.test(n.ct) ? n.ct.toUpperCase().slice(0,10) : '';
+      const tag = n.t==='E' ? (n.mode==='extract'?'EXTRACT':'LIVE') : n.t==='C' && !n.used ? (n.hidden?'MASQUÉ':'AFFICHÉ') : n.t==='S' && n.unused ? (n.hidden?'MASQUÉE':'AFFICHÉE') : n.t==='C' && n._direct===false ? 'INDIRECT' : n.t==='T' && n.ct && !/bigquery/i.test(n.ct) ? n.ct.toUpperCase().slice(0,10) : '';
       const cnt = n.t==='D' ? upOf(n.k,'S').length : n.t==='S' ? upOf(n.k,'C').length : 0;
-      h+='<button type="button" class="'+cls+'" data-k="'+esc(n.k)+'" data-c="'+col.i+'" style="left:'+x+'px;top:'+y+'px;width:'+CW+'px" title="'+esc(n.full||n.name)+'"><span class="ic" style="background:'+COLS[CI[n.t]].c+'">'+COLS[CI[n.t]].i+'</span><span class="nm">'+esc(n.name)+'</span>'+(tag?'<span class="k">'+esc(tag)+'</span>':'')+(cnt?'<span class="cnt">'+cnt+'</span>':'')+'<span class="chev" aria-hidden="true">›</span></button>';
+      h+='<button type="button" class="'+cls+'" data-k="'+esc(n.k)+'" data-c="'+col.i+'" style="left:'+x+'px;top:'+y+'px;width:'+CW+'px" title="'+esc(n.full||n.name)+'"><span class="ic" style="background:'+COLS[CI[n.t]].c+'">'+COLS[CI[n.t]].i+'</span><span class="nm">'+esc(n.name)+'</span>'+(tag?'<span class="k'+(((n.t==='C'&&!n.used)||(n.t==='S'&&n.unused))?' red':'')+'" title="'+(((n.t==='C'&&!n.used)||(n.t==='S'&&n.unused))?'Inutilisé · '+(n.hidden?'masqué':'affiché'):'')+'">'+esc(tag)+'</span>':'')+(cnt?'<span class="cnt">'+cnt+'</span>':'')+'<span class="chev" aria-hidden="true">›</span></button>';
     });
   });
   stage.innerHTML=h; stage.style.width=Wd+'px'; stage.style.height=H+'px';
@@ -338,7 +338,7 @@ async function openWb(id){
 
 /* ---------- démarrage ---------- */
 function mount(){
-  const css=document.createElement('link'); css.rel='stylesheet'; css.href='lineage.css?v=8'; document.head.appendChild(css);
+  const css=document.createElement('link'); css.rel='stylesheet'; css.href='lineage.css?v=11'; document.head.appendChild(css);
   const app=document.createElement('div'); app.className='app lin'; app.id='lin'; app.hidden=true;
   app.innerHTML=
    '<header class="head"><div class="brand"><div class="mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="5" rx="1.5"/><rect x="15" y="4" width="6" height="5" rx="1.5"/><rect x="9" y="15" width="6" height="5" rx="1.5"/><path d="M6 9v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9M12 13v2"/></svg></div><div><h1>Lineage · Tableau France</h1><p id="lSub">Du tableau de bord aux tables BigQuery</p></div></div><div class="kpis" id="lKpis"></div></header>'+
