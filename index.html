@@ -41,7 +41,8 @@ button{font:inherit;color:inherit;cursor:pointer}
 
 .app{display:flex;flex-direction:column;flex:1;min-height:0}
 .topnav{flex:none;display:flex;align-items:center;gap:18px;padding:0 18px;height:52px;background:var(--surface);border-bottom:1px solid var(--line)}
-.topnav .tt{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;letter-spacing:-.01em;white-space:nowrap}
+.topnav .tt{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;letter-spacing:-.01em;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.tabs{flex:none}
 .tabs{display:flex;gap:2px;background:var(--bg);border-radius:99px;padding:3px}
 .tab{height:32px;padding:0 16px;border:0;border-radius:99px;background:none;font-size:13px;font-weight:600;color:var(--ink-2);display:inline-flex;align-items:center;gap:7px}
 .tab:hover{color:var(--blue)}
