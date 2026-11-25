@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'">
+<meta name="referrer" content="no-referrer">
+<title>Gouvernance · Arborescence Tableau France</title>
+<script src="tableau.extensions.1.latest.min.js"></script>
+<style>
+/*
+VOICE   : console d'administration — sobre, factuelle, orientée décision.
+IDEA    : un plan de site qui se déploie en branches, coloré par l'état de santé du contenu.
+PICTURE : l'arbre horizontal lui-même, chaque projet portant sa barre de santé.
+COLOUR  : blanc + bleu Carrefour #004E9F dominant ; rouge #E2001A réservé aux alertes.
+TYPE    : pile système (aucune police externe), 4 tailles.
+*/
+:root{
+  color-scheme:light;
+  --blue:#004E9F; --blue-700:#003A78; --blue-50:#EEF4FB; --blue-100:#D7E5F6;
+  --red:#E2001A; --ink:#0B1F3A; --ink-2:#33475F; --muted:#5E6E84; --line:#E2E8F0; --bg:#F4F6F9; --surface:#fff;
+  --s-act:#1F8A50; --s-watch:#C98A00; --s-dorm:#E2001A; --s-never:#B8C3D1;
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.45 var(--font);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:6px}
+[hidden]{display:none!important}
+
+/* écran d'attente / verrou */
+.gate{position:fixed;inset:0;display:grid;place-items:center;background:var(--bg);z-index:10}
+.gate-in{display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;max-width:420px;padding:24px}
+.gate .ring{width:44px;height:44px;border-radius:50%;border:3px solid var(--blue-100);border-top-color:var(--blue);animation:spin 1s linear infinite}
+.gate h1{margin:0;font-size:16px;font-weight:650}
+.gate p{margin:0;color:var(--muted);font-size:13px}
+.gate.locked .ring{animation:none;border-color:var(--line);display:grid;place-items:center}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.gate .ring{animation:none}}
+
+.app{display:flex;flex-direction:column;height:100%}
+.head{background:var(--surface);border-bottom:1px solid var(--line);padding:14px 22px;display:flex;flex-wrap:wrap;gap:12px 28px;align-items:center}
+.brand{display:flex;align-items:center;gap:12px;flex:1 1 300px}
+.mark{width:34px;height:34px;border-radius:9px;background:var(--blue);display:grid;place-items:center;flex:none}
+.brand h1{margin:0;font-size:16px;font-weight:700;letter-spacing:-.01em}
+.brand p{margin:1px 0 0;font-size:12px;color:var(--muted)}
+.kpis{display:flex;flex-wrap:wrap;gap:6px}
+.kpi{padding:6px 12px;border-radius:10px;min-width:92px}
+.kpi b{display:block;font-size:19px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.kpi span{font-size:11px;color:var(--muted)}
+.kpi.alert b{color:var(--red)}
+.health{flex:1 1 240px;max-width:360px}
+.health .lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:5px}
+.bar{display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--line)}
+.bar i{display:block;height:100%}
+
+.tools{padding:12px 22px 0;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.search{position:relative;flex:1 1 240px;max-width:360px}
+.search input{width:100%;height:38px;border:1px solid var(--line);border-radius:99px;padding:0 14px 0 36px;font:inherit;font-size:14px;background:var(--surface);color:var(--ink)}
+.search svg{position:absolute;left:13px;top:11px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{height:34px;padding:0 12px;border-radius:99px;border:1px solid var(--line);background:var(--surface);font-size:12.5px;font-weight:500;display:inline-flex;align-items:center;gap:7px;color:var(--ink-2)}
+.chip[aria-pressed=true]{background:var(--blue);border-color:var(--blue);color:#fff}
+.chip i{width:8px;height:8px;border-radius:50%}
+.sep{width:1px;height:22px;background:var(--line);margin:0 4px}
+.ghost{height:34px;padding:0 12px;border-radius:99px;border:1px solid transparent;background:none;font-size:12.5px;color:var(--blue);font-weight:600}
+.ghost:hover{background:var(--blue-50)}
+
+.crumbs{padding:10px 22px 0;display:flex;flex-wrap:wrap;gap:2px;align-items:center;font-size:12.5px;color:var(--muted);min-height:30px}
+.crumbs button{border:0;background:none;padding:3px 7px;border-radius:99px;color:var(--muted)}
+.crumbs button:hover{background:var(--blue-50);color:var(--blue)}
+.crumbs .cur{font-weight:650;color:var(--ink);padding:3px 7px}
+
+.main{flex:1;display:flex;gap:16px;padding:10px 22px 18px;min-height:0}
+.canvas{flex:1;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:auto;position:relative}
+.stage{position:relative}
+svg.links{position:absolute;inset:0 auto auto 0;pointer-events:none;overflow:visible}
+svg.links path{fill:none;stroke:#CBD5E2;stroke-width:1.3}
+svg.links path.on{stroke:var(--blue);stroke-width:2}
+.lvl{position:absolute;top:12px;font-size:10.5px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:#93A2B6}
+
+.node{position:absolute;left:0;top:0;display:flex;flex-direction:column;justify-content:center;border:1px solid var(--line);background:var(--surface);text-align:left;padding:0 12px;transition:transform .3s ease,opacity .2s,border-color .15s,box-shadow .15s;box-shadow:0 1px 2px rgba(11,31,58,.05)}
+.node:hover{border-color:var(--blue-100);box-shadow:0 3px 10px rgba(0,78,159,.10)}
+.node .row{display:flex;align-items:center;gap:8px;width:100%}
+.node .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.node.p{height:44px;border-radius:12px}
+.node.p .nm{font-weight:620}
+.node.p .ct{font-size:11px;font-weight:650;color:var(--blue);background:var(--blue-50);border-radius:99px;padding:1px 8px;font-variant-numeric:tabular-nums}
+.node.p .mini{display:flex;height:3px;border-radius:99px;overflow:hidden;background:var(--line);margin-top:6px}
+.node.p .mini i{display:block;height:100%}
+.node .chev{flex:none;transition:transform .2s;color:var(--muted)}
+.node.open .chev{transform:rotate(90deg)}
+.node.open{border-color:var(--blue);background:var(--blue-50)}
+.node.root{background:var(--blue);border-color:var(--blue);color:#fff}
+.node.root .ct{background:rgba(255,255,255,.18);color:#fff}
+.node.root .chev{color:#fff}
+.node.w{height:34px;border-radius:9px}
+.node.w .nm{font-size:12.5px}
+.node .age{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.node .vw{font-size:11px;font-weight:650;color:var(--blue);background:var(--blue-50);border-radius:99px;padding:1px 7px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.node .env{font-size:10px;font-weight:700;letter-spacing:.04em;padding:1px 6px;border-radius:5px;background:#EEF1F5;color:var(--ink-2)}
+.node.sel{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-100)}
+.node.dim{opacity:.32}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+
+.panel{width:360px;flex:none;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 18px 20px;overflow:auto;display:flex;flex-direction:column;gap:16px}
+.eyebrow{font-size:11px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.panel h2{margin:3px 0 0;font-size:18px;line-height:1.25;font-weight:700;letter-spacing:-.01em;overflow-wrap:anywhere}
+.tag{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:650;padding:3px 9px;border-radius:99px}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.cell{background:var(--bg);border-radius:9px;padding:9px 11px}
+.cell span{display:block;font-size:11px;color:var(--muted)}
+.cell b{display:block;font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:1px;overflow-wrap:anywhere}
+.cell b.sm{font-size:13px;font-weight:600}
+.path{display:flex;flex-direction:column}
+.path div{position:relative;padding:3px 0 3px 18px;font-size:12.5px;color:var(--muted)}
+.path div::before{content:"";position:absolute;left:5px;top:0;bottom:0;border-left:1px solid var(--line)}
+.path div::after{content:"";position:absolute;left:5px;top:50%;width:8px;border-top:1px solid var(--line)}
+.path div:last-child{color:var(--ink);font-weight:650}
+.path div:last-child::before{bottom:50%}
+.flags{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.flags li{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;line-height:1.45;padding:9px 11px;border-radius:9px;background:#FFF5F6;color:#7A0010}
+.flags li.info{background:var(--blue-50);color:var(--blue-700)}
+.flags li.ok{background:#EEF8F2;color:#14603A}
+.flags svg{flex:none;margin-top:2px}
+.list{display:flex;flex-direction:column;gap:4px}
+.list button{display:flex;align-items:center;gap:8px;width:100%;border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:7px 10px;text-align:left;font-size:12.5px}
+.list button:hover{border-color:var(--blue-100);background:var(--blue-50)}
+.list .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list .r{color:var(--muted);font-size:11.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.cta{flex:none;display:flex;align-items:center;justify-content:center;gap:6px;height:40px;border-radius:99px;background:var(--blue);color:#fff;text-decoration:none;font-weight:650;font-size:13px}
+.cta:hover{background:var(--blue-700)}
+.note{font-size:11.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:12px;margin:0}
+.empty{padding:40px;text-align:center;color:var(--muted)}
+@media (max-width:860px){.main{flex-direction:column}.panel{width:auto}.canvas{min-height:420px}}
+</style>
+</head>
+<body>
+
+<div class="gate" id="gate" role="status" aria-live="polite">
+  <div class="gate-in">
+    <div class="ring" id="gateIcon"></div>
+    <h1 id="gateTitle">Connexion aux données Tableau…</h1>
+    <p id="gateText">Le contenu s’affiche uniquement à l’intérieur d’un tableau de bord Tableau Cloud autorisé.</p>
+  </div>
+</div>
+
+<div class="app" id="app" hidden>
+  <header class="head">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="2.2"/><circle cx="19" cy="5" r="2.2"/><circle cx="19" cy="19" r="2.2"/><path d="M7.2 12h4M11.2 12c3 0 3-7 5.6-7M11.2 12c3 0 3 7 5.6 7"/></svg></div>
+      <div><h1>Gouvernance du contenu · Tableau France</h1><p id="sub">—</p></div>
+    </div>
+    <div class="kpis" id="kpis"></div>
+    <div class="health" id="health"></div>
+  </header>
+
+  <div class="tools">
+    <label class="search"><span style="position:absolute;left:-9999px">Rechercher un projet, un classeur ou un propriétaire</span>
+      <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#93A2B6" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" type="search" placeholder="Projet, classeur ou propriétaire…" autocomplete="off">
+    </label>
+    <div class="chips" role="group" aria-label="Filtrer par statut" id="fStatus"></div>
+    <span class="sep" aria-hidden="true"></span>
+    <div class="chips" role="group" aria-label="Filtrer par environnement" id="fEnv"></div>
+    <span class="sep" aria-hidden="true"></span>
+    <button class="ghost" id="bOpen" type="button">Tout déplier</button>
+    <button class="ghost" id="bClose" type="button">Replier</button>
+    <button class="ghost" id="bRefresh" type="button">Actualiser</button>
+  </div>
+
+  <nav class="crumbs" id="crumbs" aria-label="Niveaux au-dessus"></nav>
+
+  <div class="main">
+    <div class="canvas" id="canvas" aria-label="Arborescence des projets"><div class="stage" id="stage"><svg class="links" id="links" aria-hidden="true"></svg></div></div>
+    <aside class="panel" id="panel" aria-live="polite"></aside>
+  </div>
+</div>
+
+<script>
+{
+/* ---------- constantes & état ---------- */
+const SHEET = 'Arbo_Data', USAGE = 'Arbo_Usage';
+const ROOT = 'root', PERSO = 'perso';
+const COLW = 296, NODEW = 262, PH = 52, WH = 40, PADX = 22, PADY = 40;
+const DAY = 864e5;
+const ST = {
+  a:{l:'Actif',       d:'consulté sur les 30 derniers jours', c:'var(--s-act)'},
+  w:{l:'À surveiller',d:'dernier accès entre 31 et 90 jours',  c:'var(--s-watch)'},
+  d:{l:'Dormant',     d:'aucun accès depuis plus de 90 jours', c:'var(--s-dorm)'},
+  n:{l:'Jamais consulté', d:'aucun accès enregistré',           c:'var(--s-never)'}
+};
+const ENV = {prod:'Production', dev:'DEV', qual:'QUAL', arch:'Archive'};
+let byId = {}, kids = {}, agg = {}, NOW = Date.now(), loadedAt = null, HAS_USAGE = false;
+const state = { open:new Set([ROOT]), sel:ROOT, q:'', st:'all', env:'all' };
+let els = {};
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = n => (n||0).toLocaleString('fr-FR');
+const fmtK = n => n>=10000 ? (Math.round(n/100)/10).toLocaleString('fr-FR')+' k' : fmt(n);
+const pct = (a,b) => b ? Math.round(a*100/b) : 0;
+const dfr = t => t ? new Date(t).toLocaleDateString('fr-FR') : '—';
+
+/* ---------- écran verrou ---------- */
+function lock(title, text){
+  $('app').hidden = true; const g=$('gate'); g.hidden=false; g.classList.add('locked');
+  $('gateIcon').innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5E6E84" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+  $('gateTitle').textContent = title; $('gateText').textContent = text;
+}
+
+/* ---------- classification ---------- */
+function envOf(name){
+  const n = name.toLowerCase();
+  if(/(^|[\s_\-\[(])(archive|archives|old|obsolete)([\s_\-\])]|$)/.test(n)) return 'arch';
+  if(/(^|[\s_\-\[(])(dev|sandbox|test|tests|poc|bac à sable)([\s_\-\])]|$)/.test(n)) return 'dev';
+  if(/(^|[\s_\-\[(])(qual|qualif|recette|preprod|uat)([\s_\-\])]|$)/.test(n)) return 'qual';
+  return null;
+}
+function statusOf(last){
+  if(!last) return 'n';
+  const d = (NOW-last)/DAY;
+  return d<=30?'a':d<=90?'w':'d';
+}
+function toTime(v){
+  if(v==null||v==='') return null;
+  if(v instanceof Date) return v.getTime();
+  const t = Date.parse(String(v).replace(' ','T'));
+  return isNaN(t)?null:t;
+}
+
+/* ---------- lecture Tableau ---------- */
+async function readSheet(ws){
+  let table;
+  if(ws.getSummaryDataReaderAsync){ const r = await ws.getSummaryDataReaderAsync(undefined,{ignoreSelection:true}); table = await r.getAllPagesAsync(); await r.releaseAsync(); }
+  else table = await ws.getSummaryDataAsync({maxRows:0, ignoreSelection:true});
+  const cols = table.columns.map(c=>(c.fieldName||'').toLowerCase());
+  const ix = (...k) => cols.findIndex(c=>k.some(x=>c.includes(x)));
+  const I = {id:ix('item id'), type:ix('item type'), name:ix('item name'), parent:ix('parent project id'), vwb:ix('view workbook id'), owner:ix('owner email'), link:ix('hyperlink'), last:ix('last access'), upd:ix('updated at')};
+  if([I.id,I.type,I.name,I.parent].some(i=>i<0)) throw new Error('colonnes Item ID, Item Type, Item Name, Item Parent Project ID attendues');
+  const v = (r,i) => { if(i<0) return null; const x=r[i]; const val = x && (x.nativeValue!==undefined?x.nativeValue:x.value); return (val===null||val==='%null%'||val===undefined)?null:val; };
+  return {rows:table.data, v, I};
+}
+
+async function readTable(ws){
+  if(ws.getSummaryDataReaderAsync){ const r = await ws.getSummaryDataReaderAsync(undefined,{ignoreSelection:true}); const t = await r.getAllPagesAsync(); await r.releaseAsync(); return t; }
+  return ws.getSummaryDataAsync({maxRows:0, ignoreSelection:true});
+}
+async function readUsage(ws){
+  const t = await readTable(ws); const cols = t.columns.map(c=>(c.fieldName||'').toLowerCase());
+  const ix = (...k) => cols.findIndex(c=>k.some(x=>c.includes(x)));
+  const iId = ix('item id'), i30 = ix('30'), i12 = ix('12');
+  if(iId<0||i30<0) return null;
+  const num = x => { const v = x && (x.nativeValue!==undefined?x.nativeValue:x.value); const n = Number(v); return isNaN(n)?0:n; };
+  const m = {}; t.data.forEach(r=>{ const id=num(r[iId]); m[id] = [num(r[i30]), i12<0?null:num(r[i12])]; });
+  return m;
+}
+function build({rows, v, I}, usage){
+  byId = {}; kids = {}; agg = {}; NOW = Date.now();
+  const add = o => { byId[o.id]=o; (kids[o.parent]=kids[o.parent]||[]).push(o.id); };
+  byId[ROOT] = {id:ROOT, name:'Site france', type:'p', parent:null, env:null};
+  const sheets = {}, wbs = [], projs = [], v30 = {}, v12 = {}; HAS_USAGE = !!usage;
+  rows.forEach(r=>{
+    const t = String(v(r,I.type)||'').toLowerCase();
+    if(t==='view'){ const w=v(r,I.vwb); if(w!=null){ const k='w'+w; sheets[k]=(sheets[k]||0)+1; if(usage){ const u=usage[Number(v(r,I.id))]; if(u){ v30[k]=(v30[k]||0)+u[0]; v12[k]=(v12[k]||0)+(u[1]||0); } } } }
+    else if(t==='project') projs.push(r); else if(t==='workbook') wbs.push(r);
+  });
+  projs.forEach(r=>{ const par=v(r,I.parent); const name=String(v(r,I.name)||'(sans nom)').trim();
+    add({id:'p'+v(r,I.id), name, type:'p', parent: par==null?ROOT:'p'+par, owner:v(r,I.owner)||'', env:envOf(name)}); });
+  let perso = false;
+  wbs.forEach(r=>{ const par=v(r,I.parent); const id='w'+v(r,I.id); const last=toTime(v(r,I.last));
+    if(par==null) perso = true;
+    add({id, name:String(v(r,I.name)||'(sans nom)').trim(), type:'w', parent: par==null?PERSO:'p'+par, owner:v(r,I.owner)||'', link:v(r,I.link)||'', last, upd:toTime(v(r,I.upd)), sheets:sheets[id]||0, v30:v30[id]||0, v12:v12[id]||0, st:statusOf(last)}); });
+  if(perso) add({id:PERSO, name:'Espaces personnels', type:'p', parent:ROOT, env:null, virtual:true});
+  // orphelins (parent inconnu) -> racine
+  Object.values(byId).forEach(n=>{ if(n.id!==ROOT && n.parent && !byId[n.parent]){ kids[n.parent]=(kids[n.parent]||[]).filter(x=>x!==n.id); n.parent=ROOT; (kids[ROOT]=kids[ROOT]||[]).push(n.id); } });
+  // environnement hérité
+  const inherit = (id, env) => { const n=byId[id]; const e = n.env || env; n.envEff = e || 'prod'; (kids[id]||[]).forEach(k=>inherit(k, e)); };
+  inherit(ROOT, null);
+  Object.values(kids).forEach(a=>a.sort((x,y)=>{const A=byId[x],B=byId[y]; if(A.type!==B.type) return A.type==='p'?-1:1; return A.name.localeCompare(B.name,'fr');}));
+  // agrégats par projet
+  const walk = id => { const s={a:0,w:0,d:0,n:0,wb:0,v30:0,v12:0,owners:new Set(),last:null,depth:0};
+    (kids[id]||[]).forEach(k=>{ const n=byId[k]; if(n.type==='w'){ s[n.st]++; s.wb++; s.v30+=n.v30; s.v12+=n.v12; if(n.owner) s.owners.add(n.owner); if(n.last && (!s.last||n.last>s.last)) s.last=n.last; }
+      else { const c=walk(k); ['a','w','d','n','wb','v30','v12'].forEach(x=>s[x]+=c[x]); c.owners.forEach(o=>s.owners.add(o)); if(c.last&&(!s.last||c.last>s.last)) s.last=c.last; s.depth=Math.max(s.depth,c.depth+1);} });
+    agg[id]=s; return s; };
+  walk(ROOT);
+  loadedAt = new Date();
+}
+
+/* ---------- filtres ---------- */
+function wbMatch(n){
+  if(state.st!=='all' && n.st!==state.st) return false;
+  if(state.env!=='all' && n.envEff!==state.env) return false;
+  if(state.q){ const q=state.q.toLowerCase(); if(!n.name.toLowerCase().includes(q) && !(n.owner||'').toLowerCase().includes(q)) return false; }
+  return true;
+}
+function keepSet(){
+  if(state.st==='all' && state.env==='all' && !state.q) return null;
+  const keep = new Set([ROOT]); const q = state.q.toLowerCase();
+  Object.values(byId).forEach(n=>{
+    let ok = n.type==='w' ? wbMatch(n) : (!!q && state.st==='all' && n.name.toLowerCase().includes(q) && (state.env==='all'||n.envEff===state.env));
+    if(ok){ let c=n.id; while(c){ keep.add(c); c=byId[c]&&byId[c].parent; } }
+  });
+  return keep;
+}
+
+/* ---------- rendu de l'arbre ---------- */
+const anc = id => { const a=[]; let c=byId[id]&&byId[id].parent; while(c){ a.unshift(c); c=byId[c].parent; } return a; };
+function layout(keep){
+  const pos={}, order=[]; let y=PADY;
+  (function place(id, depth){
+    const n=byId[id]; const open = n.type==='p' && (keep ? true : state.open.has(id));
+    const ch = open ? (kids[id]||[]).filter(k=>!keep||keep.has(k)) : [];
+    order.push(id); pos[id]={x:PADX+depth*COLW, y, depth, open};
+    if(!ch.length){ y += n.type==='w'?WH:PH; return; }
+    ch.forEach(k=>place(k, depth+1)); y += 8;
+  })(ROOT,0);
+  return {pos, order, h:y+PADY};
+}
+function miniBar(s){ const t=s.wb||1; return ['a','w','d','n'].map(k=>'<i style="width:'+(s[k]*100/t)+'%;background:'+ST[k].c+'"></i>').join(''); }
+function ageTxt(n){ if(!n.last) return 'jamais'; const d=Math.floor((NOW-n.last)/DAY); return d<1?'aujourd’hui':'j-'+d; }
+
+function makeNode(id){
+  const n=byId[id]; const el=document.createElement('button'); el.type='button';
+  el.className='node '+n.type+(id===ROOT?' root':'');
+  el.style.width=NODEW+'px'; el.style.opacity='0';
+  const envTag = n.env ? '<span class="env">'+ENV[n.env]+'</span>' : '';
+  if(n.type==='p'){
+    const s=agg[id];
+    el.innerHTML='<div class="row"><svg class="chev" aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg><span class="nm">'+esc(n.name)+'</span>'+envTag+'<span class="ct">'+fmt(s.wb)+'</span></div>'+(id===ROOT?'':'<div class="mini" aria-hidden="true">'+miniBar(s)+'</div>');
+    el.setAttribute('aria-label', n.name+', '+s.wb+' classeurs, '+s.a+' actifs, '+(s.d+s.n)+' dormants ou jamais consultés');
+  } else {
+    el.innerHTML='<div class="row"><span class="dot" style="background:'+ST[n.st].c+'"></span><span class="nm">'+esc(n.name)+'</span>'+(HAS_USAGE&&n.v30?'<span class="vw" title="Consultations 30 jours">'+fmtK(n.v30)+'</span>':'')+'<span class="age">'+ageTxt(n)+'</span></div>';
+    el.setAttribute('aria-label', n.name+', '+ST[n.st].l);
+  }
+  el.title = n.name;
+  el.addEventListener('click', ()=>onClick(id));
+  $('stage').appendChild(el); els[id]=el; return el;
+}
+
+function render(){
+  const keep = keepSet(); const {pos, order, h} = layout(keep);
+  const maxD = Math.max(...Object.values(pos).map(p=>p.depth));
+  const W = PADX*2 + maxD*COLW + NODEW, H = Math.max(h, 420);
+  const stage=$('stage'), svg=$('links');
+  stage.style.width=W+'px'; stage.style.height=H+'px'; svg.setAttribute('width',W); svg.setAttribute('height',H);
+  stage.querySelectorAll('.lvl').forEach(e=>e.remove());
+  for(let d=0; d<=maxD; d++){ const l=document.createElement('div'); l.className='lvl'; l.style.left=(PADX+d*COLW+4)+'px'; l.textContent=d===0?'Site':'Niveau '+d; stage.appendChild(l); }
+  const seen=new Set(), on=new Set([...anc(state.sel), state.sel]);
+  order.forEach(id=>{
+    seen.add(id); const n=byId[id], p=pos[id]; const el=els[id]||makeNode(id);
+    const hh = n.type==='w'?34:44, slot = n.type==='w'?WH:PH;
+    el.style.transform='translate('+p.x+'px,'+(p.y+(slot-hh)/2)+'px)'; el.style.opacity='1';
+    el.classList.toggle('open', p.open && id!==ROOT); el.classList.toggle('sel', id===state.sel && id!==ROOT);
+    el.classList.toggle('dim', n.type==='w' && !!keep && !wbMatch(n));
+    if(n.type==='p') el.setAttribute('aria-expanded', String(p.open));
+  });
+  Object.keys(els).forEach(id=>{ if(!seen.has(id)){ els[id].remove(); delete els[id]; } });
+  svg.innerHTML = order.filter(id=>id!==ROOT && pos[byId[id].parent]).map(id=>{
+    const n=byId[id], a=pos[n.parent], b=pos[id];
+    const x1=a.x+NODEW, y1=a.y+PH/2, x2=b.x, y2=b.y+(n.type==='w'?WH:PH)/2, mx=x1+(x2-x1)*.55;
+    return {d:'M'+x1+','+y1+' C'+mx+','+y1+' '+mx+','+y2+' '+x2+','+y2, on:on.has(id)&&on.has(n.parent)};
+  }).sort((a,b)=>a.on-b.on).map(p=>'<path'+(p.on?' class="on"':'')+' d="'+p.d+'"/>').join('');
+  crumbs(); panel();
+  return pos;
+}
+
+function onClick(id){
+  const n=byId[id];
+  if(n.type==='p'){ if(state.open.has(id) && state.sel===id && id!==ROOT) state.open.delete(id); else state.open.add(id); }
+  state.sel=id; const pos=render(); const p=pos[id]; if(!p) return;
+  const c=$('canvas'); let left=c.scrollLeft, top=c.scrollTop;
+  const need=(p.open?p.x+COLW:p.x)+NODEW+PADX; if(need>left+c.clientWidth) left=need-c.clientWidth;
+  if(p.x-PADX<left) left=Math.max(0,p.x-PADX);
+  if(p.y<top+30||p.y>top+c.clientHeight-110) top=Math.max(0,p.y-60);
+  c.scrollTo({left,top,behavior:'smooth'});
+}
+function focusNode(id){ anc(id).forEach(a=>state.open.add(a)); if(byId[id].type==='p') state.open.add(id); onClick(id); }
+
+/* ---------- en-tête ---------- */
+function header(){
+  const s=agg[ROOT]; const all=Object.values(byId);
+  const projs=all.filter(n=>n.type==='p'&&n.id!==ROOT&&!n.virtual);
+  const empty=projs.filter(n=>!agg[n.id].wb).length;
+  const nonProd=all.filter(n=>n.type==='w'&&n.envEff!=='prod').length;
+  $('sub').textContent = 'Données Admin Insights · Site Content'+(HAS_USAGE?' + TS Events':'')+' · chargées le '+loadedAt.toLocaleString('fr-FR',{dateStyle:'short',timeStyle:'short'});
+  const k=[[fmt(projs.length),'Projets'],[fmt(s.wb),'Classeurs']].concat(HAS_USAGE?[[fmtK(s.v30),'Consultations 30 j'],[fmtK(s.v12),'Consultations 12 mois']]:[]).concat([[pct(s.a,s.wb)+' %','Actifs 30 j'],[fmt(s.d+s.n),'Dormants ou jamais vus',true],[fmt(nonProd),'En DEV/QUAL/Archive'],[fmt(empty),'Projets vides']]);
+  $('kpis').innerHTML = k.map(x=>'<div class="kpi'+(x[2]?' alert':'')+'"><b>'+x[0]+'</b><span>'+x[1]+'</span></div>').join('');
+  $('health').innerHTML='<div class="lbl"><span>Santé du contenu</span><span>'+pct(s.a,s.wb)+' % actif</span></div><div class="bar" role="img" aria-label="'+['a','w','d','n'].map(x=>ST[x].l+' '+s[x]).join(', ')+'">'+miniBar(s)+'</div>';
+  const t=s.wb;
+  $('fStatus').innerHTML = [['all','Tous',null,t]].concat(['a','w','d','n'].map(x=>[x,ST[x].l,ST[x].c,s[x]])).map(x=>'<button type="button" class="chip" data-st="'+x[0]+'" aria-pressed="'+(state.st===x[0])+'">'+(x[2]?'<i style="background:'+x[2]+'"></i>':'')+x[1]+' · '+fmt(x[3])+'</button>').join('');
+  $('fEnv').innerHTML = [['all','Tous environnements']].concat(Object.entries(ENV)).map(x=>'<button type="button" class="chip" data-env="'+x[0]+'" aria-pressed="'+(state.env===x[0])+'">'+x[1]+'</button>').join('');
+  $('fStatus').querySelectorAll('button').forEach(b=>b.onclick=()=>{ state.st=b.dataset.st; header(); render(); $('canvas').scrollTo({left:0,top:0}); });
+  $('fEnv').querySelectorAll('button').forEach(b=>b.onclick=()=>{ state.env=b.dataset.env; header(); render(); $('canvas').scrollTo({left:0,top:0}); });
+}
+function crumbs(){
+  const c=$('crumbs'); c.innerHTML='';
+  anc(state.sel).forEach(id=>{ const b=document.createElement('button'); b.type='button'; b.textContent=byId[id].name; b.onclick=()=>focusNode(id); c.appendChild(b); const s=document.createElement('span'); s.textContent='›'; s.setAttribute('aria-hidden','true'); s.style.color='#B5C0CF'; c.appendChild(s); });
+  const cur=document.createElement('span'); cur.className='cur'; cur.textContent=byId[state.sel].name; c.appendChild(cur);
+}
+
+/* ---------- panneau gouvernance ---------- */
+const ICON = {
+  warn:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>',
+  info:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>',
+  ok:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4 10-10"/></svg>'
+};
+const flagList = f => f.length ? '<div><div class="eyebrow" style="margin-bottom:8px">Points de gouvernance</div><ul class="flags">'+f.map(x=>'<li class="'+(x[0]==='warn'?'':x[0])+'">'+ICON[x[0]]+'<span>'+x[1]+'</span></li>').join('')+'</ul></div>' : '';
+function descWbs(id){ const out=[]; (function w(i){ (kids[i]||[]).forEach(k=>{ const n=byId[k]; if(n.type==='w') out.push(n); else w(k); }); })(id); return out; }
+function wbList(arr, right){ return '<div class="list">'+arr.map(n=>'<button type="button" data-id="'+esc(n.id)+'"><span class="dot" style="background:'+ST[n.st].c+'"></span><span class="nm">'+esc(n.name)+'</span><span class="r">'+right(n)+'</span></button>').join('')+'</div>'; }
+
+function panel(){
+  const p=$('panel'), n=byId[state.sel], a=anc(state.sel);
+  const path = a.concat([state.sel]).map(id=>'<div>'+esc(byId[id].name)+'</div>').join('');
+  let h='';
+  if(n.type==='p'){
+    const s=agg[n.id], subs=(kids[n.id]||[]).filter(k=>byId[k].type==='p').length;
+    const list=descWbs(n.id);
+    const cand=list.filter(w=>(w.st==='d'||w.st==='n') && (!w.upd || (NOW-w.upd)/DAY>90)).sort((x,y)=>(x.last||0)-(y.last||0));
+    const f=[];
+    if(!s.wb) f.push(['info', n.id===ROOT?'Aucun classeur.':'Projet vide : aucun classeur, '+subs+' sous-projet'+(subs>1?'s':'')+'. À supprimer ou à documenter.']);
+    if(s.n) f.push(['warn', fmt(s.n)+' classeur'+(s.n>1?'s':'')+' jamais consulté'+(s.n>1?'s':'')+'.']);
+    if(s.d) f.push(['warn', fmt(s.d)+' classeur'+(s.d>1?'s':'')+' sans accès depuis plus de 90 jours.']);
+    if(cand.length) f.push(['warn', fmt(cand.length)+' candidat'+(cand.length>1?'s':'')+' à l’archivage (dormant ou jamais vu, non modifié depuis 90 jours).']);
+    const np=list.filter(w=>w.envEff!=='prod'); if(np.length && n.envEff==='prod') f.push(['info', fmt(np.length)+' classeur'+(np.length>1?'s':'')+' dans des sous-projets DEV, QUAL ou Archive.']);
+    if(s.depth>=4) f.push(['info','Arborescence profonde ('+(s.depth+1)+' niveaux sous ce projet) : envisager de simplifier.']);
+    if(s.wb && !s.d && !s.n) f.push(['ok','Tout le contenu a été consulté sur les 90 derniers jours.']);
+    h+='<div><div class="eyebrow">'+(n.id===ROOT?'Site':n.virtual?'Espace':'Projet · niveau '+a.length)+(n.env?' · '+ENV[n.env]:'')+'</div><h2>'+esc(n.name)+'</h2></div>';
+    if(n.id!==ROOT) h+='<div class="path">'+path+'</div>';
+    h+='<div><div class="bar" style="height:10px" role="img" aria-label="Répartition des statuts">'+miniBar(s)+'</div></div>';
+    h+='<div class="grid2"><div class="cell"><span>Classeurs</span><b>'+fmt(s.wb)+'</b></div><div class="cell"><span>Actifs 30 j</span><b>'+pct(s.a,s.wb)+' %</b></div>'
+      +(HAS_USAGE?'<div class="cell"><span>Consultations 30 j</span><b>'+fmt(s.v30)+'</b></div><div class="cell"><span>Consultations 12 mois</span><b>'+fmt(s.v12)+'</b></div>':'')
+      +'<div class="cell"><span>Propriétaires</span><b>'+fmt(s.owners.size)+'</b></div><div class="cell"><span>Dernière activité</span><b class="sm">'+dfr(s.last)+'</b></div>'
+      +(n.owner?'<div class="cell" style="grid-column:1/-1"><span>Propriétaire du projet</span><b class="sm">'+esc(n.owner)+'</b></div>':'')+'</div>';
+    h+=flagList(f);
+    if(HAS_USAGE){ const topv=list.filter(w=>w.v30>0).sort((x,y)=>y.v30-x.v30).slice(0,8); if(topv.length) h+='<div><div class="eyebrow" style="margin-bottom:8px">Les plus consultés · 30 j</div>'+wbList(topv, w=>fmt(w.v30))+'</div>'; }
+    if(cand.length) h+='<div><div class="eyebrow" style="margin-bottom:8px">Candidats à l’archivage</div>'+wbList(cand.slice(0,12), w=>w.last?dfr(w.last):'jamais')+(cand.length>12?'<p class="note" style="border:0;padding:6px 0 0">+ '+(cand.length-12)+' autres · filtre « Dormant » ou « Jamais consulté » pour tout voir.</p>':'')+'</div>';
+    if(n.id===ROOT){
+      const top=Object.values(byId).filter(x=>x.type==='p'&&x.id!==ROOT&&agg[x.id].wb>=5).sort((x,y)=>(agg[y.id].d+agg[y.id].n)/agg[y.id].wb-(agg[x.id].d+agg[x.id].n)/agg[x.id].wb).slice(0,8);
+      if(top.length) h+='<div><div class="eyebrow" style="margin-bottom:8px">Projets les plus dormants (≥ 5 classeurs)</div><div class="list">'+top.map(x=>{const s2=agg[x.id];return '<button type="button" data-id="'+esc(x.id)+'"><span class="nm">'+esc(x.name)+'</span><span class="r">'+pct(s2.d+s2.n,s2.wb)+' % inactif</span></button>';}).join('')+'</div></div>';
+    }
+  } else {
+    const days = n.last ? Math.floor((NOW-n.last)/DAY) : null;
+    const f=[];
+    if(n.st==='n') f.push(['warn','Jamais consulté depuis sa publication.']);
+    if(n.st==='d') f.push(['warn','Aucun accès depuis '+days+' jours.']);
+    if((n.st==='d'||n.st==='n') && (!n.upd || (NOW-n.upd)/DAY>90)) f.push(['warn','Candidat à l’archivage : inactif et non modifié depuis plus de 90 jours.']);
+    if(n.envEff!=='prod') f.push(['info','Situé dans un espace '+ENV[n.envEff]+' : vérifier qu’il n’est pas diffusé aux utilisateurs métier.']);
+    if(n.parent===PERSO) f.push(['info','Publié dans un espace personnel : hors gouvernance projet.']);
+    if(!n.owner) f.push(['info','Propriétaire non renseigné.']);
+    if(HAS_USAGE && n.st!=='n' && n.v12>0 && n.v12<10) f.push(['info','Audience très faible : '+n.v12+' consultation'+(n.v12>1?'s':'')+' sur 12 mois.']);
+    if(n.st==='a') f.push(['ok','Contenu actif'+(HAS_USAGE?' · '+fmt(n.v30)+' consultation'+(n.v30>1?'s':'')+' sur 30 jours':'')+'.']);
+    h+='<div><div class="eyebrow">Classeur · '+ENV[n.envEff]+'</div><h2>'+esc(n.name)+'</h2></div>';
+    h+='<div class="path">'+path+'</div>';
+    h+='<div><span class="tag" style="background:#F1F4F8;color:var(--ink-2)"><span class="dot" style="background:'+ST[n.st].c+'"></span>'+ST[n.st].l+' · '+ST[n.st].d+'</span></div>';
+    h+='<div class="grid2"><div class="cell"><span>Dernier accès</span><b class="sm">'+(n.last?dfr(n.last)+' ('+ageTxt(n)+')':'jamais')+'</b></div><div class="cell"><span>Dernière modification</span><b class="sm">'+dfr(n.upd)+'</b></div>'
+      +(HAS_USAGE?'<div class="cell"><span>Consultations 30 j</span><b>'+fmt(n.v30)+'</b></div><div class="cell"><span>Consultations 12 mois</span><b>'+fmt(n.v12)+'</b></div>':'')
+      +'<div class="cell"><span>Feuilles</span><b>'+n.sheets+'</b></div><div class="cell"><span>Niveau</span><b>'+a.length+'</b></div>'
+      +'<div class="cell" style="grid-column:1/-1"><span>Propriétaire</span><b class="sm">'+esc(n.owner||'—')+'</b></div></div>';
+    h+=flagList(f);
+    if(/^https:\/\/[a-z0-9.-]+\.tableau\.com\//i.test(n.link)) h+='<a class="cta" href="'+esc(n.link)+'" target="_blank" rel="noopener noreferrer">Ouvrir le classeur ↗</a>';
+  }
+  h+='<p class="note">Actif ≤ 30 j · À surveiller 31–90 j · Dormant &gt; 90 j, d’après le dernier accès. Consultations = événements « Access View » (Admin Insights · TS Events). Environnement déduit du nom du projet (DEV, QUAL, Archive…).</p>';
+  p.innerHTML=h;
+  p.querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>focusNode(b.dataset.id));
+}
+
+/* ---------- démarrage ---------- */
+let WS=null, WU=null;
+async function load(){
+  const data = await readSheet(WS);
+  let usage = null; if(WU){ try{ usage = await readUsage(WU); }catch(e){ usage = null; } }
+  build(data, usage);
+  if(!agg[ROOT] || (!agg[ROOT].wb && !(kids[ROOT]||[]).length)) throw new Error('empty');
+  Object.values(els).forEach(e=>e.remove()); els={};
+  state.open=new Set([ROOT]); state.sel=ROOT;
+  $('gate').hidden=true; $('app').hidden=false;
+  header(); render();
+}
+async function boot(){
+  const inFrame = window.parent!==window;
+  if(!window.tableau || !tableau.extensions || !inFrame){ lock('Accès réservé','Cette page ne s’affiche que comme extension dans un tableau de bord Tableau Cloud. Aucune donnée n’est stockée dans ce fichier.'); return; }
+  const t=setTimeout(()=>lock('Connexion impossible','L’extension n’a pas pu se connecter à Tableau. Vérifiez qu’elle est autorisée sur le site.'),15000);
+  try{
+    await tableau.extensions.initializeAsync(); clearTimeout(t);
+    WS = tableau.extensions.dashboardContent.dashboard.worksheets.find(w=>w.name===SHEET);
+    WU = tableau.extensions.dashboardContent.dashboard.worksheets.find(w=>w.name===USAGE) || null;
+    if(!WS){ lock('Feuille de données absente','Ajoutez la feuille « '+SHEET+' » (Admin Insights · Site Content) à ce tableau de bord.'); return; }
+    await load();
+    try{ WS.addEventListener(tableau.TableauEventType.SummaryDataChanged, ()=>load().catch(()=>{})); }catch(e){}
+  }catch(e){ clearTimeout(t); lock('Données indisponibles','Lecture de la feuille « '+SHEET+' » impossible. Vérifiez les droits sur la source Admin Insights.'); }
+}
+$('q').addEventListener('input', e=>{ state.q=e.target.value.trim(); render(); $('canvas').scrollTo({left:0,top:0}); });
+$('bOpen').onclick=()=>{ Object.values(byId).forEach(n=>{ if(n.type==='p') state.open.add(n.id); }); render(); };
+$('bClose').onclick=()=>{ state.open=new Set([ROOT]); state.sel=ROOT; render(); $('canvas').scrollTo({left:0,top:0,behavior:'smooth'}); };
+$('bRefresh').onclick=()=>{ if(WS) load().catch(()=>{}); };
+boot();
+}
+</script>
+</body>
+</html>
