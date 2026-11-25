@@ -164,6 +164,7 @@ svg.links path.on{stroke:var(--blue);stroke-width:2}
   <div class="tabs" role="tablist" id="tabs">
     <button class="tab" role="tab" type="button" data-tab="arbo" aria-selected="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 5h6M4 12h6M4 19h6M14 5h6M14 12h6"/></svg>Arborescence</button>
     <button class="tab" role="tab" type="button" data-tab="lin" aria-selected="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="5" rx="1.5"/><rect x="15" y="4" width="6" height="5" rx="1.5"/><rect x="9" y="15" width="6" height="5" rx="1.5"/><path d="M6 9v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9M12 13v2"/></svg>Lineage</button>
+    <button class="tab" role="tab" type="button" data-tab="lic" aria-selected="false" hidden><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.6-3.2 2.9-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.2c2.6-.3 4.6 1.3 5 4.3"/></svg>Licences &amp; groupes</button>
   </div>
   <div class="info" id="navInfo"></div>
 </nav>
@@ -501,18 +502,20 @@ async function load(){
   state.open=new Set([ROOT]); state.sel=ROOT;
   $('gate').hidden=true;
   header(); render();
-  $('tabs').querySelector('[data-tab=lin]').hidden=!HAS_LIN; showTab(curTab);
+  $('tabs').querySelector('[data-tab=lin]').hidden=!HAS_LIN; $('tabs').querySelector('[data-tab=lic]').hidden=!HAS_LIC; showTab(curTab);
 }
-let HAS_LIN=false, linReady=null, curTab='arbo';
+let HAS_LIN=false, HAS_LIC=false, linReady=null, licReady=null, curTab='arbo';
+function loadLic(){ if(!licReady) licReady=new Promise((ok,ko)=>{ const s=document.createElement('script'); s.src='licences.js?v=1'; s.onload=()=>window.LIC_START().then(ok,ko); s.onerror=ko; document.body.appendChild(s); }); return licReady; }
+async function goLic(){ const tb=$('tabs').querySelector('[data-tab=lic]'); tb.setAttribute('aria-busy','true'); try{ await loadLic(); showTab('lic'); }catch(e){ licReady=null; lock('Licences indisponibles','Lecture des feuilles Lic_Users / Lic_Groups / Lic_Perms impossible. Vérifiez les droits sur les sources Admin Insights.'); } tb.removeAttribute('aria-busy'); }
 function loadLin(){ if(!linReady) linReady=new Promise((ok,ko)=>{ const s=document.createElement('script'); s.src='lineage.js?v=11'; s.onload=()=>window.LIN_START().then(ok,ko); s.onerror=ko; document.body.appendChild(s); }); return linReady; }
-function showTab(t){ curTab=t; $('app').hidden = t!=='arbo'; const l=$('lin'); if(l) l.hidden = t!=='lin'; $('topnav').hidden=false;
+function showTab(t){ curTab=t; $('app').hidden = t!=='arbo'; const l=$('lin'); if(l) l.hidden = t!=='lin'; const c=$('lic'); if(c) c.hidden = t!=='lic'; $('topnav').hidden=false;
   $('tabs').querySelectorAll('.tab').forEach(b=>b.setAttribute('aria-selected', b.dataset.tab===t));
-  $('navInfo').textContent = t==='arbo' ? $('sub').textContent : 'Lineage · instantané de la Metadata API Tableau'; }
+  $('navInfo').textContent = t==='arbo' ? $('sub').textContent : t==='lic' ? 'Licences & groupes · Admin Insights en direct (TS Users, Groups, Permissions)' : 'Lineage · instantané de la Metadata API Tableau'; }
 async function goLin(open){ const tb=$('tabs').querySelector('[data-tab=lin]'); tb.setAttribute('aria-busy','true');
   try{ await loadLin(); showTab('lin'); if(open && window.LIN_OPEN_BY_NAME) window.LIN_OPEN_BY_NAME(open.name, open.proj); }
   catch(e){ lock('Lineage indisponible','Le module de lineage n’a pas pu être chargé.'); }
   tb.removeAttribute('aria-busy'); }
-$('tabs').querySelectorAll('.tab').forEach(b=>b.onclick=()=>{ if(b.dataset.tab==='lin') goLin(); else showTab('arbo'); });
+$('tabs').querySelectorAll('.tab').forEach(b=>b.onclick=()=>{ if(b.dataset.tab==='lin') goLin(); else if(b.dataset.tab==='lic') goLic(); else showTab('arbo'); });
 async function boot(){
   const inFrame = window.parent!==window;
   if(!window.tableau || !tableau.extensions || !inFrame){ lock('Accès réservé','Cette page ne s’affiche que comme extension dans un tableau de bord Tableau Cloud. Aucune donnée n’est stockée dans ce fichier.'); return; }
@@ -520,7 +523,7 @@ async function boot(){
   try{
     await tableau.extensions.initializeAsync(); clearTimeout(t);
     const sheets=tableau.extensions.dashboardContent.dashboard.worksheets.map(w=>w.name);
-    HAS_LIN = sheets.includes('Lineage_Data');
+    HAS_LIN = sheets.includes('Lineage_Data'); HAS_LIC = sheets.includes('Lic_Users');
     if(!sheets.includes(SHEET) && HAS_LIN){ $('gate').hidden=true; await goLin(); $('tabs').hidden=true; return; }
     WS =tableau.extensions.dashboardContent.dashboard.worksheets.find(w=>w.name===SHEET);
     WU = tableau.extensions.dashboardContent.dashboard.worksheets.find(w=>w.name===USAGE) || null;
