@@ -222,7 +222,7 @@ function panel(){
         else st='<ul class="flags"><li class="ok">Supprimable sans impact sur les tableaux de bord : aucune feuille, aucun filtre de source et aucun champ utilisé ne s’en sert'+(n.dsk&&n.dsk.startsWith('P:')?', et aucun autre classeur du site':'')+'.</li>'+((refBy.length||n.nRef>0)?'<li class="info">Référencé par '+(refBy.length||n.nRef)+' autre(s) champ(s) eux aussi non utilisés : supprimez-les ensemble pour éviter des champs en erreur.</li>':'')+'</ul>';
         h+='<div class="sec"><div class="eyebrow">Statut d’usage</div>'+st+'</div>'; }
       h+='<div class="sec"><div class="eyebrow">Formule</div>'+(n.formula?'<pre class="code">'+hl(n.formula,n)+'</pre>':'<p class="hint">Formule non remontée par la Metadata API.</p>')+'</div>';
-      h+='<div class="sec"><div class="eyebrow">Dépend de</div>'+listOf((n.deps||[]),'Uniquement des colonnes de la source.')+'</div>';
+      { const unres=(n.formula.match(/\[Calculation_\d+\]/gi)||[]).length; h+='<div class="sec"><div class="eyebrow">Dépend de</div>'+listOf((n.deps||[]), unres?'':'Uniquement des colonnes de la source.')+(unres?'<p class="hint">'+unres+' référence'+(unres>1?'s':'')+' à un champ interne (Calculation_…) que la Metadata API ne nomme pas.</p>':'')+'</div>'; }
       const by = [...(G.rdeps[n.k]||[])];
       if(by.length) h+='<div class="sec"><div class="eyebrow">Réutilisé par</div>'+listOf(by,'')+'</div>';
       h+='<div class="sec"><div class="eyebrow">Feuilles</div>'+listOf(reach(n.k,'down','S'),'Aucune feuille.')+'</div>';
