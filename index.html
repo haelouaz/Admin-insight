@@ -485,7 +485,7 @@ async function boot(){
   try{
     await tableau.extensions.initializeAsync(); clearTimeout(t);
     if(tableau.extensions.dashboardContent.dashboard.worksheets.some(w=>w.name==='Lineage_Data')){
-      const s=document.createElement('script'); s.src='lineage.js?v=1';
+      const s=document.createElement('script'); s.src='lineage.js?v=2';
       s.onload=()=>window.LIN_START(); s.onerror=()=>lock('Module indisponible','Le module de lineage n’a pas pu être chargé.');
       document.body.appendChild(s); return;
     }

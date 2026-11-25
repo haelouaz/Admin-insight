@@ -59,7 +59,7 @@ function buildGraph(rows){
       case 'S': { const s=add('S',r.id,r.name,{dash:r.info?r.info.split(','):[]}); break; }
       case 'E': add('E',r.id,r.name,{mode:r.info}); break;
       case 'P': add('P',r.id,r.name,{proj:r.info}); link(key('P',r.id), key('E',r.parent)); (pUp[r.parent]=pUp[r.parent]||[]).push(r.id); break;
-      case 'T': { const [ct,db]=r.info.split('|'); add('T',r.id,r.name,{ct,db}); link(key('T',r.id), owner(r.parent)); break; }
+      case 'T': { const [ct,db]=r.info.split('|'); const parts=r.name.replace(/[\[\]`]/g,'').split('.'); add('T',r.id,parts.length>1?parts.slice(-2).join('.'):r.name,{ct,db,full:r.name}); link(key('T',r.id), owner(r.parent)); break; }
       case 'C': { const [dt,role]=r.info.split('|'); add('C',r.id,r.name,{formula:r.formula,dt,role,ds:r.parent,dsk:owner(r.parent)}); link(owner(r.parent), key('C',r.id)); break; }
     }
   });
@@ -94,7 +94,8 @@ function buildGraph(rows){
   Object.values(N).filter(n=>n.t==='C' && [...(down[n.k]||[])].some(k=>k.startsWith('S:'))).forEach(c=>used.add(c.k));
   let grow=true; while(grow){ grow=false; [...used].forEach(k=>(deps[k]||[]).forEach(d=>{ if(!used.has(d)){ used.add(d); grow=true; } })); }
   Object.values(N).forEach(n=>{ if(n.t==='C') n.used=used.has(n.k); });
-  return {W, N, up, down, deps};
+  const rdeps={}; Object.entries(deps).forEach(([c,set])=>set.forEach(d=>(rdeps[d]=rdeps[d]||new Set()).add(c)));
+  return {W, N, up, down, deps, rdeps};
 }
 
 /* closure amont / aval (inclut les dépendances entre calculs) */
@@ -102,7 +103,7 @@ function closure(k){
   const res=new Set([k]);
   const walk=(start,dir)=>{ const q=[start]; while(q.length){ const x=q.shift();
     const nx=[...(dir==='up'?(G.up[x]||[]):(G.down[x]||[]))];
-    if(dir==='up') nx.push(...(G.deps[x]||[])); else Object.entries(G.deps).forEach(([c,s])=>{ if(s.has(x)) nx.push(c); });
+    if(dir==='up') nx.push(...(G.deps[x]||[])); else nx.push(...(G.rdeps[x]||[]));
     nx.forEach(n=>{ if(!res.has(n)){ res.add(n); q.push(n); } }); } };
   walk(k,'up'); walk(k,'down'); return res;
 }
@@ -126,17 +127,19 @@ function draw(){
   const host=$('lCanvas'); const stage=$('lStage');
   if(!G){ stage.innerHTML=''; stage.style.width=stage.style.height='0'; return; }
   const all = Object.values(G.N).filter(visible);
-  const byCol = order(all);
-  const H = Math.max(...byCol.map(c=>c.length),1)*(NH+NG)+TOP+20, Wd = COLS.length*(CW+GAP)-GAP+PADL*2;
+  const byCol0 = order(all);
+  const live = COLS.map((c,i)=>i).filter(i=>byCol0[i].length);
+  const byCol = live.map(i=>byCol0[i]), CC = live.map(i=>COLS[i]);
+  const H = Math.max(...byCol.map(c=>c.length),1)*(NH+NG)+TOP+20, Wd = Math.max(CC.length,1)*(CW+GAP)-GAP+PADL*2;
   const hi = st.sel && G.N[st.sel] ? closure(st.sel) : null;
   let h = '<svg class="edges" width="'+Wd+'" height="'+H+'" id="lEdges"></svg>';
-  COLS.forEach((c,i)=>{ h+='<div class="colh" style="position:absolute;left:'+(PADL+i*(CW+GAP))+'px;width:'+CW+'px;top:0">'+esc(c.l)+' <b>'+byCol[i].length+'</b></div>'; });
+  CC.forEach((c,i)=>{ h+='<div class="colh" style="position:absolute;left:'+(PADL+i*(CW+GAP))+'px;width:'+CW+'px;top:0">'+esc(c.l)+' <b>'+byCol[i].length+'</b></div>'; });
   const P = {};
   byCol.forEach((col,i)=>col.forEach((n,j)=>{
     const x=PADL+i*(CW+GAP), y=TOP+j*(NH+NG); P[n.k]={x,y};
     const cls = ['ln', n.k===st.sel?'sel':'', hi?(hi.has(n.k)?'on':'dim'):'', (n.t==='C'&&!n.used)?'unused':''].join(' ');
-    const tag = n.t==='E' ? (n.mode==='extract'?'EXTRACT':'LIVE') : n.t==='C' && !n.used ? 'NON UTILISÉ' : n.t==='T' && n.ct ? n.ct.toUpperCase().slice(0,10) : '';
-    h+='<button type="button" class="'+cls+'" data-k="'+esc(n.k)+'" style="left:'+x+'px;top:'+y+'px;width:'+CW+'px" title="'+esc(n.name)+'"><span class="ic" style="background:'+COLS[CI[n.t]].c+'">'+COLS[CI[n.t]].i+'</span><span class="nm">'+esc(n.name)+'</span>'+(tag?'<span class="k">'+esc(tag)+'</span>':'')+'</button>';
+    const tag = n.t==='E' ? (n.mode==='extract'?'EXTRACT':'LIVE') : n.t==='C' && !n.used ? 'NON UTILISÉ' : n.t==='T' && n.ct && !/bigquery/i.test(n.ct) ? n.ct.toUpperCase().slice(0,10) : '';
+    h+='<button type="button" class="'+cls+'" data-k="'+esc(n.k)+'" style="left:'+x+'px;top:'+y+'px;width:'+CW+'px" title="'+esc(n.full||n.name)+'"><span class="ic" style="background:'+COLS[CI[n.t]].c+'">'+COLS[CI[n.t]].i+'</span><span class="nm">'+esc(n.name)+'</span>'+(tag?'<span class="k">'+esc(tag)+'</span>':'')+'</button>';
   }));
   stage.innerHTML=h; stage.style.width=Wd+'px'; stage.style.height=H+'px';
   let paths='';
@@ -170,7 +173,7 @@ function hl(src, n){
 /* ---------- panneau ---------- */
 const listOf = (ks, emptyTxt) => ks.length ? '<div class="list">'+ks.map(k=>{ const n=G.N[k]; return '<button type="button" data-k="'+esc(k)+'"><span class="dot" style="background:'+COLS[CI[n.t]].c+'"></span><span class="nm">'+esc(n.name)+'</span></button>'; }).join('')+'</div>' : '<p class="hint">'+emptyTxt+'</p>';
 const ofType = (set,t) => [...(set||[])].filter(k=>k.startsWith(t+':')).sort((a,b)=>G.N[a].name.localeCompare(G.N[b].name,'fr'));
-function reach(k, dir, t){ const res=new Set(), q=[k]; while(q.length){ const x=q.shift(); const nx=[...(dir==='up'?(G.up[x]||[]):(G.down[x]||[]))]; if(dir==='up') nx.push(...(G.deps[x]||[])); else Object.entries(G.deps).forEach(([c,s])=>{ if(s.has(x)) nx.push(c); }); nx.forEach(n=>{ if(!res.has(n)){ res.add(n); q.push(n); } }); } return ofType(res,t); }
+function reach(k, dir, t){ const res=new Set(), q=[k]; while(q.length){ const x=q.shift(); const nx=[...(dir==='up'?(G.up[x]||[]):(G.down[x]||[]))]; if(dir==='up') nx.push(...(G.deps[x]||[])); else nx.push(...(G.rdeps[x]||[])); nx.forEach(n=>{ if(!res.has(n)){ res.add(n); q.push(n); } }); } return ofType(res,t); }
 
 function panel(){
   const p=$('lPanel');
@@ -198,12 +201,13 @@ function panel(){
       h+='<div class="meta">'+(n.dt?'<span class="pill blue">'+esc(n.dt)+'</span>':'')+(n.role?'<span class="pill">'+esc(n.role)+'</span>':'')+(n.used?'<span class="pill">Utilisé</span>':'<span class="pill red">Non utilisé</span>')+(n.dsk && n.dsk.startsWith('P:')?'<span class="pill">Source publiée</span>':'')+'</div>';
       h+='<div class="sec"><div class="eyebrow">Formule</div>'+(n.formula?'<pre class="code">'+hl(n.formula,n)+'</pre>':'<p class="hint">Formule non remontée par la Metadata API.</p>')+'</div>';
       h+='<div class="sec"><div class="eyebrow">Dépend de</div>'+listOf((n.deps||[]),'Uniquement des colonnes de la source.')+'</div>';
-      const by = Object.entries(G.deps).filter(([c,s])=>s.has(n.k)).map(([c])=>c);
+      const by = [...(G.rdeps[n.k]||[])];
       if(by.length) h+='<div class="sec"><div class="eyebrow">Réutilisé par</div>'+listOf(by,'')+'</div>';
       h+='<div class="sec"><div class="eyebrow">Feuilles</div>'+listOf(reach(n.k,'down','S'),'Aucune feuille.')+'</div>';
       h+='<div class="sec"><div class="eyebrow">Source · tables</div>'+listOf([...(n.dsk?[n.dsk]:[]), ...reach(n.k,'up','T')],'—')+'</div>';
     } else if(n.t==='T'){
       h+='<div class="meta">'+(n.ct?'<span class="pill blue">'+esc(n.ct)+'</span>':'')+(n.db?'<span class="pill">'+esc(n.db)+'</span>':'')+'</div>';
+      if(n.full) h+='<pre class="code" style="max-height:none">'+esc(n.full.replace(/[\[\]`]/g,''))+'</pre>';
       h+='<div class="sec"><div class="eyebrow">Alimente</div>'+listOf([...ofType(G.down[n.k],'P'),...ofType(G.down[n.k],'E')],'—')+'</div>';
       h+='<div class="sec"><div class="eyebrow">Tableaux de bord impactés</div>'+listOf(reach(n.k,'down','D'),'Aucun.')+'</div>';
       h+='<p class="hint">Analyse d’impact : modifier ou supprimer cette table touche '+reach(n.k,'down','S').length+' feuille(s) et '+reach(n.k,'down','C').length+' champ(s) calculé(s) de ce classeur.</p>';
