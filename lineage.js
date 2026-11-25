@@ -57,10 +57,10 @@ function buildGraph(rows){
       case 'W': { const [proj,own,upd,partial]=r.info.split('|'); W={id:r.id,name:r.name,proj,own,upd,partial:partial==='partial'}; break; }
       case 'D': add('D',r.id,r.name); break;
       case 'S': { const s=add('S',r.id,r.name,{dash:r.info?r.info.split(','):[]}); break; }
-      case 'E': add('E',r.id,r.name,{mode:r.info}); break;
+      case 'E': add('E',r.id,r.name,{mode:r.info, dsf:new Set((r.formula||'').split('|').filter(Boolean))}); break;
       case 'P': add('P',r.id,r.name,{proj:r.info}); link(key('P',r.id), key('E',r.parent)); (pUp[r.parent]=pUp[r.parent]||[]).push(r.id); break;
       case 'T': { const [ct,db]=r.info.split('|'); const parts=r.name.replace(/[\[\]`]/g,'').split('.'); add('T',r.id,parts.length>1?parts.slice(-2).join('.'):r.name,{ct,db,full:r.name}); link(key('T',r.id), owner(r.parent)); break; }
-      case 'C': { const [dt,role]=r.info.split('|'); add('C',r.id,r.name,{formula:r.formula,dt,role,ds:r.parent,dsk:owner(r.parent)}); link(owner(r.parent), key('C',r.id)); break; }
+      case 'C': { const [dt,role,ns,nr,nw,fl]=r.info.split('|'); const num=v=>v===''||v==null?null:+v; add('C',r.id,r.name,{formula:r.formula,dt,role,ds:r.parent,dsk:owner(r.parent),nSheets:num(ns),nRef:num(nr),nWb:num(nw),inDsf:fl==='1'}); link(owner(r.parent), key('C',r.id)); break; }
     }
   });
   rows.forEach(r=>{
@@ -89,11 +89,26 @@ function buildGraph(rows){
     c.refs=[...refs]; c.deps=[];
     refs.forEach(r=>{ const d=pool[r]; if(d && d.k!==c.k){ c.deps.push(d.k); (deps[c.k]=deps[c.k]||new Set()).add(d.k); } });
   });
-  // usage : direct (feuille) ou indirect (dépendance d'un champ utilisé)
-  const used = new Set();
-  Object.values(N).filter(n=>n.t==='C' && [...(down[n.k]||[])].some(k=>k.startsWith('S:'))).forEach(c=>used.add(c.k));
-  let grow=true; while(grow){ grow=false; [...used].forEach(k=>(deps[k]||[]).forEach(d=>{ if(!used.has(d)){ used.add(d); grow=true; } })); }
-  Object.values(N).forEach(n=>{ if(n.t==='C') n.used=used.has(n.k); });
+  // statut d'usage — un champ n'est « non utilisé » que si sa suppression n'impacte aucun tableau de bord :
+  //  · aucune feuille ne l'utilise, directement ou via un autre champ (lineage Tableau : downstreamSheets) ;
+  //  · il ne sert pas de filtre de source de données ;
+  //  · aucun champ utilisé ne le référence dans sa formule ;
+  //  · pour une source publiée : aucun autre classeur du site ne l'utilise.
+  //  Information manquante ou lineage partiel ⇒ on le considère utilisé (prudence).
+  const C = Object.values(N).filter(n=>n.t==='C');
+  const dsfNames = new Set(); Object.values(N).filter(n=>n.t==='E').forEach(e=>e.dsf && e.dsf.forEach(x=>dsfNames.add(x)));
+  const used = new Set(), why = {};
+  const mark = (c,reason) => { (why[c.k]=why[c.k]||[]).push(reason); used.add(c.k); };
+  C.forEach(c=>{
+    const onSheet = [...(down[c.k]||[])].some(k=>k.startsWith('S:'));
+    if(onSheet) mark(c,'sheet');
+    if(c.nSheets>0) mark(c, c.dsk && c.dsk.startsWith('P:') && !onSheet ? 'elsewhere' : 'lineage');
+    if(c.inDsf || dsfNames.has(low(c.name))) mark(c,'dsfilter');
+    if(c.nSheets==null) mark(c,'unknown');
+    if(W && W.partial) mark(c,'partial');
+  });
+  let grow=true; while(grow){ grow=false; [...used].forEach(k=>(deps[k]||[]).forEach(d=>{ if(!used.has(d)){ (why[d]=why[d]||[]).push('dep'); used.add(d); grow=true; } })); }
+  C.forEach(n=>{ n.used=used.has(n.k); n.why=why[n.k]||[]; n.elsewhereOnly = n.why.length && n.why.every(x=>x==='elsewhere'); });
   const rdeps={}; Object.entries(deps).forEach(([c,set])=>set.forEach(d=>(rdeps[d]=rdeps[d]||new Set()).add(c)));
   return {W, N, up, down, deps, rdeps};
 }
@@ -187,7 +202,8 @@ function panel(){
     h+='<div class="grid2"><div class="cell"><span>Tableaux de bord</span><b>'+cnt('D')+'</b></div><div class="cell"><span>Feuilles</span><b>'+cnt('S')+'</b></div><div class="cell"><span>Sources</span><b>'+emb+(pub?' <small style="font-size:12px;color:var(--muted)">dont '+pub+' publiée'+(pub>1?'s':'')+'</small>':'')+'</b></div><div class="cell"><span>Tables BigQuery</span><b>'+cnt('T')+'</b></div><div class="cell"><span>Champs calculés</span><b>'+C.length+'</b></div><div class="cell"><span>Non utilisés</span><b>'+un+'</b></div><div class="cell"><span>Propriétaire</span><b class="sm">'+esc((G.W.own||'—').split('@')[0])+'</b></div><div class="cell"><span>Modifié le</span><b class="sm">'+dfr(G.W.upd)+'</b></div></div>';
     const f=[];
     if(G.W.partial) f.push(['', 'Lineage partiel : ce classeur dépasse la limite de la Metadata API (20 000 nœuds).']);
-    if(un) f.push(['', un+' champ'+(un>1?'s calculés ne sont':' calculé n’est')+' utilisé'+(un>1?'s':'')+' dans aucune feuille : candidats au nettoyage.']);
+    if(un) f.push(['', un+' champ'+(un>1?'s calculés sont supprimables':' calculé est supprimable')+' sans impact : aucune feuille, aucun filtre de source ni aucun champ utilisé ne s’en sert.']);
+    const ew=C.filter(c=>c.elsewhereOnly).length; if(ew) f.push(['info', ew+' champ'+(ew>1?'s':'')+' de source publiée non utilisé'+(ew>1?'s':'')+' ici mais utilisé'+(ew>1?'s':'')+' par d’autres classeurs : à conserver.']);
     if(emb && !pub) f.push(['info','Aucune source publiée : les connexions sont embarquées dans le classeur, donc non réutilisables et non certifiables.']);
     if(ext) f.push(['info', ext+' source'+(ext>1?'s':'')+' en extrait.']);
     if(!cnt('T')) f.push(['info','Aucune table amont remontée par la Metadata API pour ce classeur.']);
@@ -198,7 +214,13 @@ function panel(){
     const col=COLS[CI[n.t]];
     h+='<div><div class="eyebrow">'+esc(col.l.replace(/s$/,'').replace('Champs calculé','Champ calculé').replace('Tables BigQuery','Table').replace('Sources publiées','Source publiée').replace('Sources du classeur','Source du classeur').replace('Tableaux de bord','Tableau de bord'))+'</div><h2>'+esc(n.name)+'</h2></div>';
     if(n.t==='C'){
-      h+='<div class="meta">'+(n.dt?'<span class="pill blue">'+esc(n.dt)+'</span>':'')+(n.role?'<span class="pill">'+esc(n.role)+'</span>':'')+(n.used?'<span class="pill">Utilisé</span>':'<span class="pill red">Non utilisé</span>')+(n.dsk && n.dsk.startsWith('P:')?'<span class="pill">Source publiée</span>':'')+'</div>';
+      h+='<div class="meta">'+(n.dt?'<span class="pill blue">'+esc(n.dt)+'</span>':'')+(n.role?'<span class="pill">'+esc(n.role)+'</span>':'')+(n.used?(n.elsewhereOnly?'<span class="pill">Utilisé dans d’autres classeurs</span>':'<span class="pill">Utilisé</span>'):'<span class="pill red">Non utilisé · supprimable</span>')+(n.dsk && n.dsk.startsWith('P:')?'<span class="pill">Source publiée</span>':'')+'</div>';
+      { const W2={sheet:'utilisé directement dans une feuille de ce classeur', lineage:'utilisé par '+(n.nSheets||0)+' feuille(s), directement ou via un autre champ (lineage Tableau)', elsewhere:'source publiée : utilisé par '+(n.nSheets||0)+' feuille(s) dans '+(n.nWb||0)+' classeur(s) du site', dsfilter:'sert de filtre de source de données', dep:'référencé dans la formule d’un champ utilisé', unknown:'statut non remonté par la Metadata API : considéré utilisé par prudence', partial:'lineage partiel de ce classeur : considéré utilisé par prudence'};
+        const refBy=[...(G.rdeps[n.k]||[])];
+        let st='';
+        if(n.used) st='<ul class="flags">'+[...new Set(n.why)].map(x=>'<li class="info">'+esc(W2[x]||x)+'</li>').join('')+'</ul>';
+        else st='<ul class="flags"><li class="ok">Supprimable sans impact sur les tableaux de bord : aucune feuille, aucun filtre de source et aucun champ utilisé ne s’en sert'+(n.dsk&&n.dsk.startsWith('P:')?', et aucun autre classeur du site':'')+'.</li>'+((refBy.length||n.nRef>0)?'<li class="info">Référencé par '+(refBy.length||n.nRef)+' autre(s) champ(s) eux aussi non utilisés : supprimez-les ensemble pour éviter des champs en erreur.</li>':'')+'</ul>';
+        h+='<div class="sec"><div class="eyebrow">Statut d’usage</div>'+st+'</div>'; }
       h+='<div class="sec"><div class="eyebrow">Formule</div>'+(n.formula?'<pre class="code">'+hl(n.formula,n)+'</pre>':'<p class="hint">Formule non remontée par la Metadata API.</p>')+'</div>';
       h+='<div class="sec"><div class="eyebrow">Dépend de</div>'+listOf((n.deps||[]),'Uniquement des colonnes de la source.')+'</div>';
       const by = [...(G.rdeps[n.k]||[])];
@@ -276,7 +298,7 @@ function mount(){
    '<label class="search" style="max-width:260px"><span style="position:absolute;left:-9999px">Chercher dans le lineage</span><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#93A2B6" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="lQ" type="search" placeholder="Champ, formule, table…" autocomplete="off"></label></div>'+
    '<div class="main" style="padding-top:10px"><div class="canvas" id="lCanvas" aria-label="Graphe de lineage"><div class="stage" id="lStage"></div><div class="welcome" id="lWelcome"><div><h3>Choisissez un classeur</h3><p>Recherchez-le par son nom, son projet ou son propriétaire.</p></div></div><div class="loading" id="lLoading" hidden><div class="ring" style="width:36px;height:36px;border-radius:50%;border:3px solid var(--blue-100);border-top-color:var(--blue);animation:spin 1s linear infinite"></div></div></div><aside class="panel" id="lPanel" aria-live="polite"></aside></div>';
   document.body.appendChild(app);
-  const chips=[['used','Champs utilisés'],['all','Tous les champs'],['unused','Non utilisés']];
+  const chips=[['used','Champs utilisés'],['all','Tous les champs'],['unused','Non utilisés · supprimables']];
   $('lCalc').innerHTML=chips.map(([k,l])=>'<button type="button" class="chip" data-c="'+k+'" aria-pressed="'+(st.calc===k)+'">'+l+'</button>').join('');
   $('lCalc').querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{ st.calc=b.dataset.c; $('lCalc').querySelectorAll('[data-c]').forEach(x=>x.setAttribute('aria-pressed',x===b)); draw(); });
   const pick=$('lPick');
