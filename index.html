@@ -505,7 +505,7 @@ async function load(){
   $('tabs').querySelector('[data-tab=lin]').hidden=!HAS_LIN; $('tabs').querySelector('[data-tab=lic]').hidden=!HAS_LIC; showTab(curTab);
 }
 let HAS_LIN=false, HAS_LIC=false, linReady=null, licReady=null, curTab='arbo';
-function loadLic(){ if(!licReady) licReady=new Promise((ok,ko)=>{ const s=document.createElement('script'); s.src='licences.js?v=4'; s.onload=()=>window.LIC_START().then(ok,ko); s.onerror=ko; document.body.appendChild(s); }); return licReady; }
+function loadLic(){ if(!licReady) licReady=new Promise((ok,ko)=>{ const s=document.createElement('script'); s.src='licences.js?v=5'; s.onload=()=>window.LIC_START().then(ok,ko); s.onerror=ko; document.body.appendChild(s); }); return licReady; }
 async function goLic(){ const tb=$('tabs').querySelector('[data-tab=lic]'); tb.setAttribute('aria-busy','true'); try{ await loadLic(); showTab('lic'); }catch(e){ licReady=null; lock('Licences indisponibles','Lecture impossible : '+((e&&e.message)||e)); } tb.removeAttribute('aria-busy'); }
 function loadLin(){ if(!linReady) linReady=new Promise((ok,ko)=>{ const s=document.createElement('script'); s.src='lineage.js?v=11'; s.onload=()=>window.LIN_START().then(ok,ko); s.onerror=ko; document.body.appendChild(s); }); return linReady; }
 function showTab(t){ curTab=t; $('app').hidden = t!=='arbo'; const l=$('lin'); if(l) l.hidden = t!=='lin'; const c=$('lic'); if(c) c.hidden = t!=='lic'; $('topnav').hidden=false;
