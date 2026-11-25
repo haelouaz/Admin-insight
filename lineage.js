@@ -51,7 +51,7 @@ function buildGraph(rows){
   rows.forEach(r=>{ if(r.type==='E') eIds.add(r.id); if(r.type==='P') pIds.add(r.id); });
   const owner = p => eIds.has(p) ? key('E',p) : pIds.has(p) ? key('P',p) : null;
   const pUp = {}; // E -> [P]
-  const sheetsV = {};
+  const sheetsV = {}; const zset = new Set(); let twbOk = false;
   rows.forEach(r=>{
     switch(r.type){
       case 'W': { const [proj,own,upd,partial]=r.info.split('|'); W={id:r.id,name:r.name,proj,own,upd,partial:partial==='partial'}; break; }
@@ -60,6 +60,8 @@ function buildGraph(rows){
       case 'E': add('E',r.id,r.name,{mode:r.info, dsf:new Set((r.formula||'').split('|').filter(Boolean))}); break;
       case 'P': add('P',r.id,r.name,{proj:r.info}); link(key('P',r.id), key('E',r.parent)); (pUp[r.parent]=pUp[r.parent]||[]).push(r.id); break;
       case 'T': { const [ct,db]=r.info.split('|'); const parts=r.name.replace(/[\[\]`]/g,'').split('.'); add('T',r.id,parts.length>1?parts.slice(-2).join('.'):r.name,{ct,db,full:r.name}); link(key('T',r.id), owner(r.parent)); break; }
+      case 'Y': twbOk = true; break;
+      case 'Z': zset.add(low(r.parent)+'|'+low(r.name)); break;
       case 'C': { const [dt,role,ns,nr,nw,fl]=r.info.split('|'); const num=v=>v===''||v==null?null:+v; add('C',r.id,r.name,{formula:r.formula,dt,role,ds:r.parent,dsk:owner(r.parent),nSheets:num(ns),nRef:num(nr),nWb:num(nw),inDsf:fl==='1'}); link(owner(r.parent), key('C',r.id)); break; }
     }
   });
@@ -108,6 +110,11 @@ function buildGraph(rows){
     if(W && W.partial) mark(c,'partial');
   });
   let grow=true; while(grow){ grow=false; [...used].forEach(k=>(deps[k]||[]).forEach(d=>{ if(!used.has(d)){ (why[d]=why[d]||[]).push('dep'); used.add(d); grow=true; } })); }
+  // contrôle final dans le XML du classeur : le champ ne doit apparaître nulle part ailleurs que dans sa propre définition
+  // (feuilles, autres champs même non utilisés, actions, visibilité dynamique des zones, filtres de source, hiérarchies…)
+  const eByP = {}; Object.entries(pUp).forEach(([e,ps])=>ps.forEach(pl=>(eByP[pl]=eByP[pl]||[]).push(e)));
+  const clean = c => { const owners = c.dsk && c.dsk.startsWith('P:') ? (eByP[c.ds]||[]) : [c.ds]; return owners.some(e=>{ const en=N[key('E',e)]; return en && zset.has(low(en.name)+'|'+low(c.name)); }); };
+  C.forEach(c=>{ if(used.has(c.k)) return; if(!twbOk){ (why[c.k]=why[c.k]||[]).push('notwb'); used.add(c.k); } else if(!clean(c)){ (why[c.k]=why[c.k]||[]).push('twb'); used.add(c.k); } });
   C.forEach(n=>{ n.used=used.has(n.k); n.why=why[n.k]||[]; n.elsewhereOnly = n.why.length && n.why.every(x=>x==='elsewhere'); });
   const rdeps={}; Object.entries(deps).forEach(([c,set])=>set.forEach(d=>(rdeps[d]=rdeps[d]||new Set()).add(c)));
   return {W, N, up, down, deps, rdeps};
@@ -202,7 +209,8 @@ function panel(){
     h+='<div class="grid2"><div class="cell"><span>Tableaux de bord</span><b>'+cnt('D')+'</b></div><div class="cell"><span>Feuilles</span><b>'+cnt('S')+'</b></div><div class="cell"><span>Sources</span><b>'+emb+(pub?' <small style="font-size:12px;color:var(--muted)">dont '+pub+' publiée'+(pub>1?'s':'')+'</small>':'')+'</b></div><div class="cell"><span>Tables BigQuery</span><b>'+cnt('T')+'</b></div><div class="cell"><span>Champs calculés</span><b>'+C.length+'</b></div><div class="cell"><span>Non utilisés</span><b>'+un+'</b></div><div class="cell"><span>Propriétaire</span><b class="sm">'+esc((G.W.own||'—').split('@')[0])+'</b></div><div class="cell"><span>Modifié le</span><b class="sm">'+dfr(G.W.upd)+'</b></div></div>';
     const f=[];
     if(G.W.partial) f.push(['', 'Lineage partiel : ce classeur dépasse la limite de la Metadata API (20 000 nœuds).']);
-    if(un) f.push(['', un+' champ'+(un>1?'s calculés sont supprimables':' calculé est supprimable')+' sans impact : aucune feuille, aucun filtre de source ni aucun champ utilisé ne s’en sert.']);
+    if(un) f.push(['', un+' champ'+(un>1?'s calculés sont supprimables':' calculé est supprimable')+' sans aucun changement : référencé'+(un>1?'s':'')+' nulle part dans le classeur (feuilles, champs, actions, visibilité dynamique, filtres).']);
+    if(C.some(c=>c.why.includes('notwb'))) f.push(['info','Le XML de ce classeur n’a pas pu être analysé : aucun champ n’est proposé à la suppression.']);
     const ew=C.filter(c=>c.elsewhereOnly).length; if(ew) f.push(['info', ew+' champ'+(ew>1?'s':'')+' de source publiée non utilisé'+(ew>1?'s':'')+' ici mais utilisé'+(ew>1?'s':'')+' par d’autres classeurs : à conserver.']);
     if(emb && !pub) f.push(['info','Aucune source publiée : les connexions sont embarquées dans le classeur, donc non réutilisables et non certifiables.']);
     if(ext) f.push(['info', ext+' source'+(ext>1?'s':'')+' en extrait.']);
@@ -215,11 +223,11 @@ function panel(){
     h+='<div><div class="eyebrow">'+esc(col.l.replace(/s$/,'').replace('Champs calculé','Champ calculé').replace('Tables BigQuery','Table').replace('Sources publiées','Source publiée').replace('Sources du classeur','Source du classeur').replace('Tableaux de bord','Tableau de bord'))+'</div><h2>'+esc(n.name)+'</h2></div>';
     if(n.t==='C'){
       h+='<div class="meta">'+(n.dt?'<span class="pill blue">'+esc(n.dt)+'</span>':'')+(n.role?'<span class="pill">'+esc(n.role)+'</span>':'')+(n.used?(n.elsewhereOnly?'<span class="pill">Utilisé dans d’autres classeurs</span>':'<span class="pill">Utilisé</span>'):'<span class="pill red">Non utilisé · supprimable</span>')+(n.dsk && n.dsk.startsWith('P:')?'<span class="pill">Source publiée</span>':'')+'</div>';
-      { const W2={sheet:'utilisé directement dans une feuille de ce classeur', lineage:'utilisé par '+(n.nSheets||0)+' feuille(s), directement ou via un autre champ (lineage Tableau)', elsewhere:'source publiée : utilisé par '+(n.nSheets||0)+' feuille(s) dans '+(n.nWb||0)+' classeur(s) du site', dsfilter:'sert de filtre de source de données', dep:'référencé dans la formule d’un champ utilisé', unknown:'statut non remonté par la Metadata API : considéré utilisé par prudence', partial:'lineage partiel de ce classeur : considéré utilisé par prudence'};
+      { const W2={sheet:'utilisé directement dans une feuille de ce classeur', lineage:'utilisé par '+(n.nSheets||0)+' feuille(s), directement ou via un autre champ (lineage Tableau)', elsewhere:'source publiée : utilisé par '+(n.nSheets||0)+' feuille(s) dans '+(n.nWb||0)+' classeur(s) du site', dsfilter:'sert de filtre de source de données', dep:'référencé dans la formule d’un champ utilisé', twb:'référencé ailleurs dans le classeur : formule d’un autre champ, action, visibilité dynamique d’une zone, filtre, ensemble, groupe ou hiérarchie', notwb:'XML du classeur non analysable : considéré utilisé par prudence', unknown:'statut non remonté par la Metadata API : considéré utilisé par prudence', partial:'lineage partiel de ce classeur : considéré utilisé par prudence'};
         const refBy=[...(G.rdeps[n.k]||[])];
         let st='';
         if(n.used) st='<ul class="flags">'+[...new Set(n.why)].map(x=>'<li class="info">'+esc(W2[x]||x)+'</li>').join('')+'</ul>';
-        else st='<ul class="flags"><li class="ok">Supprimable sans impact sur les tableaux de bord : aucune feuille, aucun filtre de source et aucun champ utilisé ne s’en sert'+(n.dsk&&n.dsk.startsWith('P:')?', et aucun autre classeur du site':'')+'.</li>'+((refBy.length||n.nRef>0)?'<li class="info">Référencé par '+(refBy.length||n.nRef)+' autre(s) champ(s) eux aussi non utilisés : supprimez-les ensemble pour éviter des champs en erreur.</li>':'')+'</ul>';
+        else st='<ul class="flags"><li class="ok">Supprimable sans aucun changement sur le tableau de bord : le champ n’apparaît nulle part dans le classeur hors de sa propre définition (ni feuille, ni autre champ, ni action, ni visibilité dynamique, ni filtre, ensemble, groupe ou hiérarchie)'+(n.dsk&&n.dsk.startsWith('P:')?', et aucun autre classeur du site ne l’utilise':'')+'.</li></ul>';
         h+='<div class="sec"><div class="eyebrow">Statut d’usage</div>'+st+'</div>'; }
       h+='<div class="sec"><div class="eyebrow">Formule</div>'+(n.formula?'<pre class="code">'+hl(n.formula,n)+'</pre>':'<p class="hint">Formule non remontée par la Metadata API.</p>')+'</div>';
       { const unres=(n.formula.match(/\[Calculation_\d+\]/gi)||[]).length; h+='<div class="sec"><div class="eyebrow">Dépend de</div>'+listOf((n.deps||[]), unres?'':'Uniquement des colonnes de la source.')+(unres?'<p class="hint">'+unres+' référence'+(unres>1?'s':'')+' à un champ interne (Calculation_…) que la Metadata API ne nomme pas.</p>':'')+'</div>'; }
