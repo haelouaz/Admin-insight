@@ -34,7 +34,7 @@ async function load(){
   const rd = async n => { const w=W(n); if(!w) return null; try{ return await readTable(w); }catch(e){ console.error('[licences] '+n, e); window.__LIC_ERR=(window.__LIC_ERR||[]).concat(n+' : '+(e&&e.message||JSON.stringify(e))); return null; } };
   window.__LIC_ERR=[];
   // lecture séquentielle : plusieurs lecteurs de données simultanés se mélangent côté Tableau
-  const ts=await rd('Lic_Summary'), tu=await rd('Lic_Users'), tgs=await rd('Lic_GroupStats'), tg=await rd('Lic_Groups'), tp=await rd('Lic_Perms');
+  const ts=await rd('Lic_Summary'), tu=await rd('Lic_Users'), tgs=await rd('Lic_GroupStats'), tg=await rd('Lic_Groups'), tp=await rd('Lic_Perms'), ta=await rd('Lic_PermAgg');
   window.__LIC_ROWS={Summary:ts&&ts.data.length, Users:tu&&tu.data.length, GroupStats:tgs&&tgs.data.length, Groups:tg&&tg.data.length, Perms:tp&&tp.data.length, cols:ts?ts.columns.map(c=>c.fieldName).join('/'):''};
   if(!ts) throw new Error((window.__LIC_ERR.length?window.__LIC_ERR:['Lic_Summary illisible']).join(' | '));
   // 1. synthèse : licence × rôle × ancienneté de connexion (tous les utilisateurs du site)
@@ -72,7 +72,16 @@ async function load(){
   if(tp){ c=cols(tp); const K={g:c('grantee name'),it:c('item name'),il:c('item luid'),top:c('top parent'),cap:c('capability'),val:c('permission value')};
     tp.data.forEach(r=>{ const g=v(r,K.g); if(!g) return; const p={g, item:v(r,K.it), luid:v(r,K.il), top:v(r,K.top)||v(r,K.it), cap:v(r,K.cap), val:v(r,K.val)}; PERM.push(p);
       const G=GR[g]||(GR[g]={name:g, count:0, members:new Set(), perms:{}}); const P=G.perms[p.item]||(G.perms[p.item]={item:p.item, top:p.top, allow:new Set(), deny:new Set()}); (/deny/i.test(p.val||'')?P.deny:P.allow).add(p.cap); }); }
+  // autorisations réelles : toutes les règles explicites d'un groupe, quel que soit le type d'élément
+  Object.values(GR).forEach(G=>{ G.auth={total:0,deny:0,types:{},tops:{}}; });
+  if(ta){ c=cols(ta); const A={g:c('grantee name'),t:c('item type'),top:c('top parent'),val:c('permission value'),n:c('item luid')};
+    ta.data.forEach(r=>{ const g=v(r,A.g); if(!g) return; const n=num(v(r,A.n)); const G=GR[g]||(GR[g]={name:g,count:0,members:new Set(),perms:{},auth:{total:0,deny:0,types:{},tops:{}}}); if(!G.auth) G.auth={total:0,deny:0,types:{},tops:{}};
+      const t=typeFr(v(r,A.t)), top=v(r,A.top)||'—'; G.auth.types[t]=(G.auth.types[t]||0)+n; G.auth.total+=n; G.auth.tops[top]=(G.auth.tops[top]||0)+n; if(/deny/i.test(v(r,A.val)||'')) G.auth.deny+=n; }); }
+  AUTH_OK=!!ta;
 }
+let AUTH_OK=false;
+function typeFr(t){ t=low(t); return t.includes('project')?'Projets':t.includes('workbook')?'Classeurs':t.includes('view')?'Vues':t.includes('datasource')||t.includes('data source')?'Sources':t.includes('flow')?'Flux':t.includes('metric')?'Métriques':t.includes('lens')?'Lens':t||'Autres'; }
+const authTags = G => Object.entries((G.auth&&G.auth.types)||{}).sort((a,b)=>b[1]-a[1]).map(([t,n])=>'<span class="pill">'+esc(t)+' '+fmt(n)+'</span>').join('');
 
 /* ---------- rendu commun ---------- */
 const bar = (parts,total) => '<div class="bar">'+parts.filter(p=>p[0]>0).map(p=>'<i style="width:'+(p[0]*100/(total||1))+'%;background:'+p[1]+'" title="'+esc(p[2]||'')+'"></i>').join('')+'</div>';
@@ -82,7 +91,7 @@ const ALLU = () => Object.values(SUMM).reduce((a,x)=>a+x.total,0);
 function kpis(){
   const licN=['Creator','Explorer','Viewer'].reduce((a,l)=>a+occ(l),0), idleN=['Creator','Explorer','Viewer'].reduce((a,l)=>a+sumSt(l,'d')+sumSt(l,'n'),0), recs=U.filter(u=>u.rec);
   const k=[[fmt(licN)+(CAP.Total?' / '+fmt(CAP.Total):''),'Licences occupées'],[fmt(occ('Creator'))+(CAP.Creator?' / '+fmt(CAP.Creator):''),'Creator'],[fmt(occ('Explorer'))+(CAP.Explorer?' / '+fmt(CAP.Explorer):''),'Explorer'],[fmt(occ('Viewer'))+(CAP.Viewer?' / '+fmt(CAP.Viewer):''),'Viewer'],[fmt(idleN),'Licences inactives > 90 j',true],[fmt(recs.length),'Ajustements Creator/Explorer',true],[fmt(occ('Unlicensed')),'Sans licence'],[fmt(Object.keys(GR).length),'Groupes']];
-  $('licKpis').innerHTML=k.map(x=>'<div class="kpi'+(x[2]?' alert':'')+'"><b>'+x[0]+'</b><span>'+x[1]+'</span></div>').join('');
+  $('licKpis').innerHTML=k.map(x=>{ const parts=String(x[0]).split(' / '); return '<div class="ban'+(x[2]?' alert':'')+'"><b>'+parts[0]+(parts[1]?'<small> / '+parts[1]+'</small>':'')+'</b><span>'+x[1]+'</span></div>'; }).join('');
 }
 function tools(){
   const tabs=[['lic','Licences'],['grp','Groupes'],['map','Mapping groupes × projets'],['usr','Utilisateurs']];
@@ -129,22 +138,24 @@ function vLicences(){
 }
 function vGroupes(){
   const q=low(st.q); const gs=Object.values(GR).filter(G=>!q||low(G.name).includes(q)).sort((a,b)=>b.count-a.count);
-  let h='<table class="gtab"><thead><tr><th>Groupe</th><th class="n">Membres</th><th class="n">Creator</th><th class="n">Explorer</th><th class="n">Projets</th><th>Licence à la connexion</th></tr></thead><tbody>';
-  gs.forEach(G=>{ const s=gStats(G), flags=[]; if(!G.count) flags.push('vide'); if(!s.projects && !/^(all users|tous les utilisateurs)$/i.test(G.name)) flags.push('sans droit');
-    h+='<tr data-g="'+esc(G.name)+'" class="'+(st.sel===G.name?'sel':'')+'"><td><b>'+esc(G.name)+'</b>'+flags.map(f=>'<span class="k red">'+f.toUpperCase()+'</span>').join('')+'</td><td class="n">'+fmt(G.count)+'</td><td class="n">'+(G.detailed?fmt(s.c):'<span class="hint">—</span>')+'</td><td class="n">'+(G.detailed?fmt(s.e):'<span class="hint">—</span>')+'</td><td class="n">'+fmt(s.projects)+'</td><td>'+(G.los&&G.min?'<span class="pill blue">'+esc(G.min)+'</span>':'<span class="hint">—</span>')+'</td></tr>'; });
-  return h+'</tbody></table><p class="hint" style="margin-top:8px">Creator / Explorer : membres détaillés pour les groupes de moins de 3 000 personnes. « — » : groupe trop grand pour le détail.</p>';
+  let h='<table class="gtab"><thead><tr><th>Groupe</th><th class="n">Membres</th><th class="n">Creator</th><th class="n">Explorer</th><th class="n">Éléments autorisés</th><th>Détail des autorisations</th><th>Licence à la connexion</th></tr></thead><tbody>';
+  gs.forEach(G=>{ const s=gStats(G), a=G.auth||{total:0}, flags=[]; if(!G.count) flags.push('vide'); if(AUTH_OK && !a.total && !/^(all users|tous les utilisateurs)$/i.test(G.name)) flags.push('sans autorisation'); if(a.deny) flags.push('refus explicites');
+    h+='<tr data-g="'+esc(G.name)+'" class="'+(st.sel===G.name?'sel':'')+'"><td><b>'+esc(G.name)+'</b>'+flags.map(f=>'<span class="k red">'+f.toUpperCase()+'</span>').join('')+'</td><td class="n">'+fmt(G.count)+'</td><td class="n">'+(G.detailed?fmt(s.c):'<span class="hint">—</span>')+'</td><td class="n">'+(G.detailed?fmt(s.e):'<span class="hint">—</span>')+'</td><td class="n"><b>'+fmt(a.total)+'</b></td><td><div class="meta">'+authTags(G)+'</div></td><td>'+(G.los&&G.min?'<span class="pill blue">'+esc(G.min)+'</span>':'<span class="hint">—</span>')+'</td></tr>'; });
+  return h+'</tbody></table><p class="hint" style="margin-top:8px">Éléments autorisés : nombre de projets, classeurs, vues et sources sur lesquels le groupe a au moins une règle explicite (source Permissions d’Admin Insights). Creator / Explorer : membres détaillés pour les groupes de moins de 3 000 personnes.</p>';
 }
 function vMapping(){
-  const gs=Object.values(GR).filter(G=>Object.keys(G.perms).length);
-  if(!gs.length) return '<p class="hint">Aucun droit de groupe sur les projets n’a été remonté par la source Permissions.</p>';
-  const tops={}; gs.forEach(G=>Object.values(G.perms).forEach(p=>{ tops[p.top]=(tops[p.top]||0)+1; }));
+  const gs=Object.values(GR).filter(G=>G.auth&&G.auth.total);
+  if(!gs.length) return '<p class="hint">Aucune autorisation de groupe remontée par la source Permissions.</p>';
+  const tops={}; gs.forEach(G=>Object.entries(G.auth.tops).forEach(([t,n])=>{ tops[t]=(tops[t]||0)+n; }));
   const T=Object.keys(tops).sort((a,b)=>tops[b]-tops[a]);
-  const q=low(st.q); const rows=gs.filter(G=>!q||low(G.name).includes(q)).sort((a,b)=>Object.keys(b.perms).length-Object.keys(a.perms).length);
-  const cell=(G,t)=>{ const ps=Object.values(G.perms).filter(p=>p.top===t); if(!ps.length) return '<td></td>'; const w=ps.some(p=>[...p.allow].some(c=>/write|publish|overwrite|edit|delete|setpermissions|projectleader|write/i.test(c))); const d=ps.some(p=>p.deny.size);
-    return '<td class="hm '+(w?'w':'r')+(d?' d':'')+'" title="'+esc(G.name+' → '+t+' : '+ps.length+' projet(s)'+(w?' · écriture':' · lecture')+(d?' · refus explicites':''))+'">'+ps.length+'</td>'; };
-  return '<p class="hint" style="margin:0 0 10px">Droits des groupes par projet racine (nombre de projets où le groupe a au moins une règle). <span class="hm r sw">lecture</span> <span class="hm w sw">écriture / publication</span> <span class="hm r d sw">refus explicite</span></p>'+
-    '<div class="mwrap"><table class="matrix"><thead><tr><th></th>'+T.map(t=>'<th><span>'+esc(t)+'</span></th>').join('')+'</tr></thead><tbody>'+
-    rows.map(G=>'<tr data-g="'+esc(G.name)+'" class="'+(st.sel===G.name?'sel':'')+'"><th>'+esc(G.name)+' <small>'+fmt(G.count)+'</small></th>'+T.map(t=>cell(G,t)).join('')+'</tr>').join('')+'</tbody></table></div>';
+  const q=low(st.q); const rows=gs.filter(G=>!q||low(G.name).includes(q)).sort((a,b)=>b.auth.total-a.auth.total);
+  const max=Math.max(...rows.flatMap(G=>Object.values(G.auth.tops)),1);
+  const writeOn=(G,t)=>Object.values(G.perms).some(p=>p.top===t && [...p.allow].some(c=>/write|publish|overwrite|edit|delete|setpermissions|projectleader/i.test(c)));
+  const cell=(G,t)=>{ const n=G.auth.tops[t]||0; if(!n) return '<td></td>'; const a=0.15+0.85*Math.sqrt(n/max); const w=writeOn(G,t);
+    return '<td class="hm" style="background:rgba(0,78,159,'+a.toFixed(2)+');color:'+(a>0.5?'#fff':'#003A78')+(w?';box-shadow:inset 0 0 0 2px #E2001A':'')+'" title="'+esc(G.name+' → '+t+' : '+n+' élément(s) avec une règle'+(w?' · droits d’écriture ou de publication':''))+'">'+fmt(n)+'</td>'; };
+  return '<p class="hint" style="margin:0 0 10px">Nombre d’éléments (projets, classeurs, vues, sources) où chaque groupe a une règle explicite, par projet racine. Plus la case est foncée, plus le groupe est présent. <span class="hm sw" style="background:#fff;box-shadow:inset 0 0 0 2px #E2001A;color:#003A78">cadre rouge</span> : droits d’écriture ou de publication sur un projet.</p>'+
+    '<div class="mwrap"><table class="matrix"><thead><tr><th></th>'+T.map(t=>'<th><span>'+esc(t)+'</span></th>').join('')+'<th><span>Total</span></th></tr></thead><tbody>'+
+    rows.map(G=>'<tr data-g="'+esc(G.name)+'" class="'+(st.sel===G.name?'sel':'')+'"><th>'+esc(G.name)+' <small>'+fmt(G.count)+' membres</small></th>'+T.map(t=>cell(G,t)).join('')+'<td class="tot">'+fmt(G.auth.total)+'</td></tr>').join('')+'</tbody></table></div>';
 }
 function vUsers(){
   const q=low(st.q);
@@ -173,13 +184,15 @@ function panel(){
   } else if(st.sel && GR[st.sel]){
     const G=GR[st.sel], s=gStats(G), perms=Object.values(G.perms).sort((a,b)=>a.top.localeCompare(b.top,'fr')||a.item.localeCompare(b.item,'fr'));
     h+='<div><div class="eyebrow">Groupe</div><h2>'+esc(G.name)+'</h2></div>';
-    h+='<div class="grid2"><div class="cell"><span>Membres</span><b>'+fmt(G.count)+'</b></div><div class="cell"><span>dont Creator / Explorer</span><b>'+(G.detailed?fmt(s.c)+' / '+fmt(s.e):'—')+'</b></div><div class="cell"><span>Projets avec droits</span><b>'+fmt(s.projects)+'</b></div><div class="cell"><span>Licence à la connexion</span><b class="sm">'+(G.los&&G.min?esc(G.min):'non')+'</b></div></div>';
+    h+='<div class="grid2"><div class="cell"><span>Membres</span><b>'+fmt(G.count)+'</b></div><div class="cell"><span>dont Creator / Explorer</span><b>'+(G.detailed?fmt(s.c)+' / '+fmt(s.e):'—')+'</b></div><div class="cell"><span>Éléments autorisés</span><b>'+fmt((G.auth&&G.auth.total)||0)+'</b></div><div class="cell"><span>Licence à la connexion</span><b class="sm">'+(G.los&&G.min?esc(G.min):'non')+'</b></div></div>';
     if(G.detailed && G.count) h+='<div class="sec"><div class="eyebrow">Licences des membres</div>'+bar([[s.c,LIC.Creator.c,'Creator'],[s.e,LIC.Explorer.c,'Explorer'],[s.rest,LIC.Viewer.c,'Viewer ou sans licence']],G.count)+'<div class="legend"><span><i style="background:'+LIC.Creator.c+'"></i>Creator · '+s.c+'</span><span><i style="background:'+LIC.Explorer.c+'"></i>Explorer · '+s.e+'</span><span><i style="background:'+LIC.Viewer.c+'"></i>Viewer ou sans licence · '+fmt(s.rest)+'</span></div></div>';
-    const f=[]; if(!G.count) f.push(['','Groupe vide : à supprimer s’il ne sert plus.']); if(!G.detailed && G.count) f.push(['info','Groupe de '+fmt(G.count)+' membres : liste détaillée non chargée (groupes de moins de 3 000 membres uniquement).']); if(!s.projects && !/^(all users|tous les utilisateurs)$/i.test(G.name)) f.push(['','Aucun droit sur un projet : groupe orphelin ou utilisé seulement pour des abonnements ou des filtres de sécurité.']);
+    const f=[]; if(!G.count) f.push(['','Groupe vide : à supprimer s’il ne sert plus.']); if(!G.detailed && G.count) f.push(['info','Groupe de '+fmt(G.count)+' membres : liste détaillée non chargée (groupes de moins de 3 000 membres uniquement).']); 
     const idle=s.m.filter(u=>u.st==='d'||u.st==='n').length; if(idle) f.push(['info',idle+' Creator/Explorer sans connexion depuis plus de 90 jours.']);
     if(G.los&&G.min) f.push(['info','Attribue la licence « '+esc(G.min)+' » à la première connexion de ses membres.']);
     if(f.length) h+='<ul class="flags">'+f.map(([c,t])=>'<li class="'+c+'">'+t+'</li>').join('')+'</ul>';
-    if(perms.length) h+='<div class="sec"><div class="eyebrow">Droits sur les projets</div><div class="perm">'+perms.map(p=>'<div><b>'+esc(p.item)+'</b><small>'+esc(p.top===p.item?'projet racine':p.top)+'</small><div class="caps">'+[...p.allow].sort().map(c=>'<span class="pill">'+esc(c)+'</span>').join('')+[...p.deny].sort().map(c=>'<span class="pill red">✕ '+esc(c)+'</span>').join('')+'</div></div>').join('')+'</div></div>';
+    if(G.auth && G.auth.total) h+='<div class="sec"><div class="eyebrow">Autorisations · '+fmt(G.auth.total)+' éléments</div><div class="meta">'+authTags(G)+'</div><div class="list">'+Object.entries(G.auth.tops).sort((a,b)=>b[1]-a[1]).map(([t,n])=>'<button type="button"><span class="nm">'+esc(t)+'</span><span class="r">'+fmt(n)+'</span></button>').join('')+'</div></div>';
+    else if(AUTH_OK) h+='<ul class="flags"><li>Aucune règle d’autorisation explicite pour ce groupe : il ne donne accès à rien directement.</li></ul>';
+    if(perms.length) h+='<div class="sec"><div class="eyebrow">Détail des règles sur les projets</div><div class="perm">'+perms.map(p=>'<div><b>'+esc(p.item)+'</b><small>'+esc(p.top===p.item?'projet racine':p.top)+'</small><div class="caps">'+[...p.allow].sort().map(c=>'<span class="pill">'+esc(c)+'</span>').join('')+[...p.deny].sort().map(c=>'<span class="pill red">✕ '+esc(c)+'</span>').join('')+'</div></div>').join('')+'</div></div>';
     if(s.m.length) h+='<div class="sec"><div class="eyebrow">Membres Creator / Explorer</div><div class="list">'+s.m.sort((a,b)=>(b.login||0)-(a.login||0)).slice(0,300).map(uRow).join('')+'</div></div>';
   } else {
     const licN=['Creator','Explorer','Viewer'].reduce((a,l)=>a+occ(l),0);
@@ -201,9 +214,9 @@ function panel(){
 
 /* ---------- démarrage ---------- */
 function mount(){
-  const css=document.createElement('link'); css.rel='stylesheet'; css.href='licences.css?v=1'; document.head.appendChild(css);
+  const css=document.createElement('link'); css.rel='stylesheet'; css.href='licences.css?v=2'; document.head.appendChild(css);
   const app=document.createElement('div'); app.className='app lic'; app.id='lic'; app.hidden=true;
-  app.innerHTML='<header class="head"><div class="kpis" id="licKpis"></div></header>'+
+  app.innerHTML='<header class="head bans-wrap"><div class="bans" id="licKpis"></div></header>'+
     '<div class="tools"><div class="chips" id="licTabs" role="tablist"></div><span class="sep"></span><label class="search" style="max-width:280px"><span style="position:absolute;left:-9999px">Rechercher</span><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#93A2B6" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="licQ" type="search" placeholder="Utilisateur, e-mail, groupe…" autocomplete="off"></label></div>'+
     '<div class="tools" id="licFilt" hidden></div>'+
     '<div class="main"><div class="canvas" id="licMain" style="padding:16px 18px"></div><aside class="panel" id="licPanel" aria-live="polite"></aside></div>';

@@ -1,0 +1,17 @@
+/* Page Adoption */
+.ado .segs{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-top:12px}
+.ado .seg{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 12px;cursor:pointer}
+.ado .seg:hover{border-color:var(--blue-100);background:var(--blue-50)}
+.ado .seg[aria-pressed=true]{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-100)}
+.ado .seg .sw{width:22px;height:5px;border-radius:3px}
+.ado .seg b{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.ado .seg b small{font-size:12px;font-weight:600;color:var(--muted)}
+.ado .seg .sl{font-size:12.5px;font-weight:650;color:var(--ink)}
+.ado .seg .sd{font-size:11px;color:var(--muted);line-height:1.35}
+.ado .trend{display:flex;align-items:flex-end;gap:6px;height:190px;padding-top:18px;margin-top:8px}
+.ado .tc{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0}
+.ado .tb{width:100%;max-width:46px;display:flex;flex-direction:column-reverse;border-radius:5px 5px 0 0;overflow:hidden;min-height:2px}
+.ado .tb i{display:block;width:100%}
+.ado .tv{font-size:10.5px;color:var(--ink-2);font-weight:650;margin-bottom:3px;font-variant-numeric:tabular-nums}
+.ado .tm{font-size:10.5px;color:var(--muted);margin-top:5px}
+.ado .urow{cursor:default}
