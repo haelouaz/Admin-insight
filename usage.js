@@ -212,7 +212,7 @@ async function render(){
 function controls(){
   const grp=(id,obj,cur,attr)=>{ $(id).innerHTML=Object.entries(obj).map(([k,o])=>'<button type="button" class="chip" data-'+attr+'="'+k+'" aria-pressed="'+(cur===k)+'">'+esc(typeof o==='string'?o:o.l)+'</button>').join(''); };
   grp('useG',GR,st.g,'g'); grp('useM',MET,st.m,'m'); grp('useW',WIN,st.w,'w');
-  $('useG').querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>{ st.g=b.dataset.g; render(); });
+  $('useG').querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>{ st.g=b.dataset.g; controls(); if(!SER[st.g]) $('useChart').innerHTML='<p class="hint loading">Chargement de la granularité « '+esc(GR[st.g].l)+' »…</p>'; render(); });
   $('useM').querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{ st.m=b.dataset.m; st.sort=null; render(); });
   $('useW').querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{ st.w=b.dataset.w; render(); });
 }

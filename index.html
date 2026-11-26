@@ -512,7 +512,7 @@ async function load(){
   $('tabs').querySelector('[data-tab=lin]').hidden=!HAS_LIN; $('tabs').querySelector('[data-tab=lic]').hidden=!HAS_LIC; $('tabs').querySelector('[data-tab=ado]').hidden=!HAS_ADO; $('tabs').querySelector('[data-tab=use]').hidden=!HAS_USE; showTab(curTab);
 }
 let HAS_LIN=false, HAS_LIC=false, HAS_ADO=false, HAS_USE=false, linReady=null, licReady=null, adoReady=null, useReady=null, curTab='arbo';
-function loadUse(){ if(!useReady) useReady=new Promise((ok,ko)=>{ const s=document.createElement('script'); s.src='usage.js?v=3'; s.onload=()=>window.USE_START().then(ok,ko); s.onerror=ko; document.body.appendChild(s); }); return useReady; }
+function loadUse(){ if(!useReady) useReady=new Promise((ok,ko)=>{ const s=document.createElement('script'); s.src='usage.js?v=4'; s.onload=()=>window.USE_START().then(ok,ko); s.onerror=ko; document.body.appendChild(s); }); return useReady; }
 async function goUse(){ const tb=$('tabs').querySelector('[data-tab=use]'); tb.setAttribute('aria-busy','true'); try{ await loadUse(); showTab('use'); }catch(e){ useReady=null; lock('Usage indisponible','Lecture impossible : '+((e&&e.message)||e)); } tb.removeAttribute('aria-busy'); }
 function loadAdo(){ if(!adoReady) adoReady=new Promise((ok,ko)=>{ const s=document.createElement('script'); s.src='adoption.js?v=2'; s.onload=()=>window.ADO_START().then(ok,ko); s.onerror=ko; document.body.appendChild(s); }); return adoReady; }
 async function goAdo(){ const tb=$('tabs').querySelector('[data-tab=ado]'); tb.setAttribute('aria-busy','true'); try{ await loadAdo(); showTab('ado'); }catch(e){ adoReady=null; lock('Adoption indisponible','Lecture impossible : '+((e&&e.message)||e)); } tb.removeAttribute('aria-busy'); }
