@@ -89,3 +89,8 @@ svg.edges path.dim{stroke:#EDF1F6}
 .atab td small{display:block;color:var(--muted);font-size:11px}
 .atab .n{text-align:right}
 .atab tr[data-w]{cursor:pointer}.atab tr[data-w]:hover td{background:#FFF7F8}
+.alerts{min-width:0;max-width:100%}
+.atab{table-layout:fixed}
+.atab th:nth-child(1){width:42%}.atab th:nth-child(2){width:20%}.atab th:nth-child(3){width:14%}
+.atab td{overflow:hidden;text-overflow:ellipsis}
+.atab .pill{white-space:normal;display:inline-block;margin:1px 0}

@@ -170,7 +170,8 @@ function columns(){
     items=items.filter(n=>n && (match(n) || st.path[i]===n.k));
     const parentS = anc && anc.startsWith('S:') ? anc : null;
     items.forEach(n=>{ n._direct = parentS && n.t==='C' ? (G.down[n.k]||new Set()).has(parentS) : null; });
-    items.sort((a,b)=> (a.t==='C' && parentS ? (b._direct-a._direct) : 0) || (a.virtual?1:0)-(b.virtual?1:0) || a.name.localeCompare(b.name,'fr'));
+    const sevR=n=>n.err?(n.err.sev==='E'?0:2):n.hitBy?1:3;
+    items.sort((a,b)=> (st.calc==='err' ? sevR(a)-sevR(b) : 0) || (a.t==='C' && parentS ? (b._direct-a._direct) : 0) || (a.virtual?1:0)-(b.virtual?1:0) || a.name.localeCompare(b.name,'fr'));
     cols.push({c, i, items, anc});
     if(st.path[i] && items.some(n=>n.k===st.path[i])) anc=st.path[i];
   });
@@ -388,7 +389,7 @@ async function openWb(id){
 
 /* ---------- démarrage ---------- */
 function mount(){
-  const css=document.createElement('link'); css.rel='stylesheet'; css.href='lineage.css?v=12'; document.head.appendChild(css);
+  const css=document.createElement('link'); css.rel='stylesheet'; css.href='lineage.css?v=13'; document.head.appendChild(css);
   const app=document.createElement('div'); app.className='app lin'; app.id='lin'; app.hidden=true;
   app.innerHTML=
    '<header class="head"><div class="brand"><div class="mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="5" rx="1.5"/><rect x="15" y="4" width="6" height="5" rx="1.5"/><rect x="9" y="15" width="6" height="5" rx="1.5"/><path d="M6 9v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9M12 13v2"/></svg></div><div><h1>Lineage · Tableau France</h1><p id="lSub">Du tableau de bord aux tables BigQuery</p></div></div><div class="kpis" id="lKpis"></div></header>'+
@@ -413,7 +414,7 @@ function syncChips(){
   const ne=G?G.B.length:0;
   const chips=[['used','Utilisés'],['all','Tout'],['unused','Inutilisés (champs et feuilles)'],['err','En erreur'+(G?' · '+ne:'')]];
   $('lCalc').innerHTML=chips.map(([k,l])=>'<button type="button" class="chip'+(k==='err'?' chip-err':'')+'" data-c="'+k+'" aria-pressed="'+(st.calc===k)+'">'+l+'</button>').join('');
-  $('lCalc').querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{ st.calc=b.dataset.c; syncChips(); st.path={}; st.sel=null; draw(); panel(); focusBar(); });
+  $('lCalc').querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{ st.calc=b.dataset.c; syncChips(); st.path={}; st.sel=null; draw(); panel(); focusBar(); $('lCanvas').scrollTo({left:0,top:0}); });
 }
 /* écran d'accueil : alertes du site */
 let ALLB=[];
