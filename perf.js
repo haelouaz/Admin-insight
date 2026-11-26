@@ -105,7 +105,7 @@ function score(x){ // 0-100 : complexité structurelle (indépendante du temps m
 const pct=(a,b)=>b?Math.round(a*100/b):0;
 function siteMed(){ const tot=V.reduce((a,x)=>a+x.n,0); if(!DAY.length) return {med:null,p90:null,tot}; const last=DAY.slice(-30); const w=last.reduce((a,d)=>a+d.n,0)||1; return {med:last.reduce((a,d)=>a+d.med*d.n,0)/w, p90:last.reduce((a,d)=>a+d.p90*d.n,0)/w, tot}; }
 function bans(){
-  const s=siteMed(); const c=k=>V.filter(x=>x.n>0&&x.st&&x.st.k===k).length;
+  const s=siteMed(); const c=k=>V.filter(x=>x.n>=10&&x.st&&x.st.k===k).length;
   const prev=DAY.slice(-90,-30); const wp=prev.reduce((a,d)=>a+d.n,0)||1; const medPrev=prev.length? prev.reduce((a,d)=>a+d.med*d.n,0)/wp : null;
   const d=medPrev&&s.med? Math.round((s.med-medPrev)*100/medPrev) : null;
   const errs=V.reduce((a,x)=>a+x.err,0);
@@ -138,13 +138,13 @@ function hourChart(){
   const H=Array.from({length:24},(_,h)=>HOUR.find(x=>x.h===h)||{h,n:0,med:0,p90:0}); const mx=Math.max(1,...H.map(x=>x.n)), mm=Math.max(4,...H.map(x=>x.med));
   el.innerHTML='<div class="hours">'+H.map(x=>{ const s=stOf(x.med)||ST[0]; return '<div class="hc" title="'+esc(x.h+' h · '+fmt(x.n)+' chargements · médiane '+sec(x.med)+' · P90 '+sec(x.p90))+'"><span class="hv" style="color:'+s.c+'">'+(x.n?sec(x.med).replace(' s',''):'')+'</span><div class="hb" style="height:'+(x.n*100/mx)+'%;background:'+(x.n?s.c:'#E6EBF2')+'"></div><span class="hl">'+x.h+'</span></div>'; }).join('')+'</div><p class="hint">Hauteur = nombre de chargements (30 j, heure de Paris) · couleur et valeur = temps médian. Une médiane qui monte avec le trafic signale une saturation aux heures de pointe.</p>';
 }
-function filtered(){ const q=low(st.q); return V.filter(x=>x.n>0 && (st.f==='all' || (x.st&&x.st.k===st.f)) && (!q || low(x.wb).includes(q) || low(x.it).includes(q) || low(x.p).includes(q))); }
+function filtered(){ const q=low(st.q); return V.filter(x=>x.n>0 && (st.f==='all' || (x.st&&x.st.k===st.f&&x.n>=10)) && (!q || low(x.wb).includes(q) || low(x.it).includes(q) || low(x.p).includes(q))); }
 function table(){
   const list=filtered(); const S={impact:x=>x.impact, med:x=>x.med||0, p90:x=>x.p90||0, n:x=>x.n, score:x=>x.score}; list.sort((a,b)=>S[st.sort](b)-S[st.sort](a));
   const th=(k,l,n)=>'<th class="'+(n?'n ':'')+'sortable" data-s="'+k+'" aria-sort="'+(st.sort===k?'descending':'none')+'">'+l+(st.sort===k?' ▾':'')+'</th>';
   let h='<table class="gtab ptab"><thead><tr><th>Vue · classeur</th>'+th('med','Médiane',1)+th('p90','P90',1)+'<th class="n">Évol.</th>'+th('n','Chargements 30 j',1)+th('impact','Attente cumulée',1)+th('score','Complexité',1)+'<th>Causes probables</th></tr></thead><tbody>';
-  h+=list.slice(0,250).map(x=>{ const s=x.st||ST[0]; const d=x.medp&&x.med? Math.round((x.med-x.medp)*100/x.medp):null;
-    return '<tr data-i="'+V.indexOf(x)+'" class="'+(st.sel===x?'sel':'')+'"><td><div class="vn"><span class="sd" style="background:'+s.c+'" title="'+esc(s.l)+'"></span><span><b>'+esc(x.it)+'</b><small>'+esc(x.wb)+(x.p?' · '+esc(x.p):'')+'</small></span></div></td>'+
+  h+=list.slice(0,250).map(x=>{ const s=x.st||ST[0]; const d=x.medp&&x.med&&x.np>=20&&x.n>=20? Math.round((x.med-x.medp)*100/x.medp):null;
+    return '<tr data-i="'+V.indexOf(x)+'" class="'+(st.sel===x?'sel':'')+'"><td><div class="vn"><span class="sd" style="background:'+s.c+'" title="'+esc(s.l)+'"></span><span><b>'+esc(x.it)+'</b>'+(x.n<10?'<span class="k" title="Moins de 10 chargements sur 30 jours : statut peu fiable">FAIBLE VOLUME</span>':'')+'<small>'+esc(x.wb)+(x.p?' · '+esc(x.p):'')+'</small></span></div></td>'+
       '<td class="n"><span class="pt" style="--c:'+s.c+'">'+sec(x.med)+'</span></td><td class="n">'+sec(x.p90)+'</td><td class="n">'+(d==null?'—':'<span class="dl '+(d>10?'dn':d<-10?'up':'')+'">'+(d>0?'+':'')+d+' %</span>')+'</td><td class="n">'+fmt(x.n)+'</td><td class="n">'+(x.impact>=3600?(x.impact/3600).toFixed(1).replace('.',',')+' h':fmt(x.impact/60)+' min')+'</td>'+
       '<td class="n"><span class="cx"><i style="width:'+x.score+'%"></i></span>'+x.score+'</td><td>'+x.causes.slice(0,3).map(c=>'<span class="cz w'+c.w+'">'+esc(c.t)+'</span>').join('')+'</td></tr>'; }).join('');
   h+='</tbody></table>'+(list.length>250?'<p class="hint">250 premières vues · affinez avec la recherche.</p>':'')+(!list.length?'<p class="hint">Aucune vue pour ce filtre.</p>':'');
@@ -161,8 +161,8 @@ function siteChart(){ $('pfChartT').innerHTML='Site france · temps de chargemen
 function panel(){
   const p=$('pfPanel'); const x=st.sel;
   if(!x){
-    const s=siteMed(); const top=V.filter(v=>v.n>0).sort((a,b)=>b.impact-a.impact).slice(0,8);
-    const cc={}; V.filter(v=>v.n>0&&v.st&&(v.st.k==='slow'||v.st.k==='crit')).forEach(v=>v.causes.forEach(c=>{ cc[c.t]=(cc[c.t]||0)+1; }));
+    const s=siteMed(); const top=V.filter(v=>v.n>=10).sort((a,b)=>b.impact-a.impact).slice(0,8);
+    const cc={}; V.filter(v=>v.n>=10&&v.st&&(v.st.k==='slow'||v.st.k==='crit')).forEach(v=>v.causes.forEach(c=>{ cc[c.t]=(cc[c.t]||0)+1; }));
     let h='<div><div class="eyebrow">Site france</div><h2>Performance des tableaux de bord</h2><p class="hint">Source : Admin Insights · Viz Load Times (temps de réponse serveur à l’ouverture d’une vue). Seuils sur la médiane : ≤ 3 s bon, 3–7 s à surveiller, 7–15 s lent, > 15 s critique.</p></div>';
     h+='<div class="sec"><div class="eyebrow">À traiter en priorité · attente cumulée</div><div class="list">'+top.map(v=>'<button type="button" class="urow" data-i="'+V.indexOf(v)+'"><span class="sd" style="background:'+(v.st||ST[0]).c+'"></span><span class="nm"><b>'+esc(v.it)+'</b><small>'+esc(v.wb)+'</small></span><span class="r"><b>'+sec(v.med)+'</b><br>'+fmt(v.n)+' ch.</span></button>').join('')+'</div></div>';
     const cl=Object.entries(cc).sort((a,b)=>b[1]-a[1]).slice(0,6);
