@@ -1,0 +1,33 @@
+/* Page Usage des tableaux de bord */
+.use .utools{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 22px}
+.use .cg{display:flex;flex-direction:column;gap:5px}
+.use .cl{font-size:10.5px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:#93A2B6}
+.use .ban b em.dl{font-style:normal;font-size:13px;font-weight:700;margin-left:8px;padding:2px 7px;border-radius:99px;vertical-align:middle;background:#EEF1F5;color:var(--ink-2);letter-spacing:0}
+.use .ban b em.dl.up{background:#E6F4EC;color:#1F6B41}
+.use .ban b em.dl.dn{background:#FFF0F2;color:#9A0016}
+.use .block h3 small{font-weight:500;color:var(--muted);font-size:12px}
+.use .uchart{width:100%;height:240px;display:block;margin-top:8px}
+.use .uchart .gl{stroke:#EDF1F6;stroke-width:1;vector-effect:non-scaling-stroke}
+.use .uchart .ax{font-size:10.5px;fill:#93A2B6}
+.use .uchart .vl{font-size:10.5px;fill:var(--ink-2);font-weight:650}
+.use .uchart .b{fill:var(--blue)}
+.use .uchart .b.cur{fill:#8DB8EA}
+.use .uchart .hit{fill:transparent}
+.use .uchart .bk:hover .b{fill:var(--blue-700)}
+.use .uchart .bk:hover .b.cur{fill:#5E9BDD}
+.use .gtab th.sortable{cursor:pointer;user-select:none}
+.use .gtab th.sortable[aria-sort=descending]{color:var(--blue)}
+.use .gtab td.rk{color:#93A2B6;font-variant-numeric:tabular-nums;font-size:11.5px}
+.use .wbn{display:flex;flex-direction:column;min-width:0}
+.use .wbn b{font-weight:600}
+.use .wbn small{color:var(--muted);font-size:11px}
+.use .spk rect{fill:#8DB8EA}
+.use .spk rect.cur{fill:#C9DDF3}
+.use .gtab tr.sel .spk rect{fill:var(--blue)}
+.use .back{border:0;background:none;color:var(--blue);font-size:12.5px;font-weight:600;padding:0;margin-bottom:8px;cursor:pointer}
+.use .lnk{border:0;background:none;color:var(--blue);font-size:11px;font-weight:600;padding:0;margin-left:6px;cursor:pointer;text-transform:none;letter-spacing:0}
+.use .vrow{cursor:pointer}
+.use .vrow.on{border-color:var(--blue);box-shadow:0 0 0 2px var(--blue-100)}
+.use .vrow .r{text-align:right;line-height:1.35}
+.use .urow .r b{color:var(--ink)}
+.use [aria-busy=true]{opacity:.55;transition:opacity .2s}
