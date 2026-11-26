@@ -62,3 +62,30 @@ svg.edges path.dim{stroke:#EDF1F6}
 .focus b{max-width:220px}
 
 .ln .k.red{background:#FFF0F2;color:#9A0016}
+.ln.err{border-color:#E2001A;box-shadow:0 0 0 2px #FFD6DC;background:#FFF7F8}
+.ln.warn{border-color:#F3A3AE}
+.ln.hit{border-color:#F3A3AE}
+.ln .bug{color:#E2001A;font-size:12px;font-weight:700}
+.code .bad{color:#fff;background:#E2001A;border-radius:4px;padding:0 3px}
+.errs{display:flex;flex-direction:column;gap:5px;max-height:360px;overflow:auto}
+.eb{display:block;width:100%;text-align:left;border:1px solid #FFD6DC;background:#FFF7F8;border-radius:9px;padding:7px 10px;font-size:12px;line-height:1.45;color:var(--ink-2);cursor:pointer}
+.eb.w{border-color:var(--line);background:var(--surface)}
+.eb:hover{border-color:#E2001A}
+.eb code,.flags code{font:11.5px ui-monospace,Consolas,monospace;background:#FFE3E7;color:#9A0016;border-radius:4px;padding:0 3px}
+.eb-n{font-size:11px;font-weight:700;color:#9A0016;background:#FFF0F2;border-radius:99px;padding:1px 7px;white-space:nowrap}
+.chip-err{color:#9A0016}
+.chip-err[aria-pressed=true]{background:#E2001A !important;border-color:#E2001A !important;color:#fff}
+.welcome.wa{display:block;text-align:left;overflow:auto}
+.alerts{max-width:1000px;margin:0 auto;padding:6px 4px 20px;display:flex;flex-direction:column;gap:14px;color:var(--ink-2)}
+.alerts h3{font-size:16px;margin:0 0 4px;color:var(--ink)}
+.acards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.ac{background:#FFF7F8;border:1px solid #FFD6DC;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.ac b{font-size:28px;color:#E2001A;font-variant-numeric:tabular-nums;line-height:1.1}
+.ac span{font-size:12px;color:var(--muted)}
+.ac.muted{background:var(--bg);border-color:var(--line)}.ac.muted b{color:var(--ink)}
+.atab{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.atab th{text-align:left;font-size:10.5px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:#93A2B6;padding:8px 10px;border-bottom:1px solid var(--line)}
+.atab td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.atab td small{display:block;color:var(--muted);font-size:11px}
+.atab .n{text-align:right}
+.atab tr[data-w]{cursor:pointer}.atab tr[data-w]:hover td{background:#FFF7F8}

@@ -47,7 +47,7 @@ function buildGraph(rows){
   const key = (t,id) => t+':'+id;
   const add = (t,id,name,extra) => { const k=key(t,id); if(!N[k]) N[k]={k,t,id,name:name||id,...extra}; else if(name && N[k].name===N[k].id) N[k].name=name; return N[k]; };
   const link = (a,b) => { if(!a||!b||a===b) return; (down[a]=down[a]||new Set()).add(b); (up[b]=up[b]||new Set()).add(a); };
-  let W=null; const eIds=new Set(), pIds=new Set();
+  let W=null; const eIds=new Set(), pIds=new Set(), B=[];
   rows.forEach(r=>{ if(r.type==='E') eIds.add(r.id); if(r.type==='P') pIds.add(r.id); });
   const owner = p => eIds.has(p) ? key('E',p) : pIds.has(p) ? key('P',p) : null;
   const pUp = {}; // E -> [P]
@@ -61,6 +61,7 @@ function buildGraph(rows){
       case 'P': add('P',r.id,r.name,{proj:r.info}); link(key('P',r.id), key('E',r.parent)); (pUp[r.parent]=pUp[r.parent]||[]).push(r.id); break;
       case 'T': { const [ct,db]=r.info.split('|'); const parts=r.name.replace(/[\[\]`]/g,'').split('.'); add('T',r.id,parts.length>1?parts.slice(-2).join('.'):r.name,{ct,db,full:r.name}); link(key('T',r.id), owner(r.parent)); break; }
       case 'Y': twbOk = true; break;
+      case 'B': { const [sev,kind,sh]=r.info.split('|'); B.push({sev,kind,id:r.id,ds:r.parent,name:r.name,sheets:kind==='ref'&&sh?sh.split(','):[],code:kind!=='ref'?sh:'',refs:kind==='ref'?r.formula.split('\u23D0').filter(Boolean):[],msg:kind!=='ref'?r.formula:''}); break; }
       case 'Z': zset.add(low(r.parent)+'|'+low(r.name)); if(r.info==='h') zHidden.add(low(r.parent)+'|'+low(r.name)); break;
       case 'K': { const [d,t,a,h]=r.info.split('|'); ksheet[r.name]={inDash:d==='1',inTip:t==='1',inAct:a==='1',hidden:h==='1'}; break; }
       case 'C': { const [dt,role,ns,nr,nw,fl]=r.info.split('|'); const num=v=>v===''||v==null?null:+v; add('C',r.id,r.name,{formula:r.formula,dt,role,ds:r.parent,dsk:owner(r.parent),nSheets:num(ns),nRef:num(nr),nWb:num(nw),inDsf:fl==='1'}); link(owner(r.parent), key('C',r.id)); break; }
@@ -126,7 +127,16 @@ function buildGraph(rows){
   const orph=Object.values(N).filter(n=>n.t==='S' && ![...(down[n.k]||[])].some(k=>k.startsWith('D:')));
   if(orph.length){ N['D:__orphan']={k:'D:__orphan',t:'D',id:'__orphan',name:'Feuilles hors tableau de bord',virtual:true}; orph.forEach(sn=>link(sn.k,'D:__orphan')); }
   const rdeps={}; Object.entries(deps).forEach(([c,set])=>set.forEach(d=>(rdeps[d]=rdeps[d]||new Set()).add(c)));
-  return {W, N, up, down, deps, rdeps};
+  // erreurs détectées (contrôle Metadata API) : champ cassé → feuilles → tableaux de bord
+  const hit=(k,src)=>{ const n=N[k]; if(!n) return; (n.hitBy=n.hitBy||new Set()).add(src); };
+  B.forEach(b=>{
+    if(b.kind==='ref'){ const c=N[key('C',b.id)]; if(!c) return; c.err=b; b.k=c.k;
+      if(b.sev==='E'){ const sh=new Set(b.sheets.map(id=>key('S',id)).filter(k=>N[k])); [...(down[c.k]||[])].filter(k=>k.startsWith('S:')).forEach(k=>sh.add(k));
+        b.sk=[...sh]; sh.forEach(k=>{ hit(k,c.k); [...(down[k]||[])].filter(d=>d.startsWith('D:')).forEach(d=>hit(d,c.k)); }); }
+    } else { const src=N[key('P',b.ds)]; b.k=src?src.k:null; if(src){ src.err=b; if(b.sev==='E'){ const q=[src.k], seen=new Set(); while(q.length){ const x=q.shift(); [...(down[x]||[])].forEach(y=>{ if(!seen.has(y)){ seen.add(y); q.push(y); if(y.startsWith('S:')||y.startsWith('D:')) hit(y,src.k); } }); } } } }
+  });
+  B.sort((a,b)=>(a.sev===b.sev?0:a.sev==='E'?-1:1) || ((b.sk||[]).length-(a.sk||[]).length) || a.name.localeCompare(b.name,'fr'));
+  return {W, N, up, down, deps, rdeps, B};
 }
 
 /* closure amont / aval (inclut les dépendances entre calculs) */
@@ -141,6 +151,7 @@ function closure(k){
 
 /* ---------- rendu ---------- */
 function visible(n){
+  if(st.calc==='err'){ if(n.t==='C') return !!n.err; if(n.t==='S'||n.t==='D') return !!n.hitBy; }
   if(n.t==='C'){ if(st.calc==='used' && !n.used) return false; if(st.calc==='unused' && n.used) return false; }
   if(n.t==='S'){ if(st.calc==='unused' && !n.unused) return false; }
   if(st.q){ const q=low(st.q); if(!low(n.name).includes(q) && !(n.formula && low(n.formula).includes(q))) return false; }
@@ -155,7 +166,7 @@ function columns(){
   COLS.forEach((c,i)=>{
     let items;
     if(anc) items=upOf(anc,c.k).map(k=>G.N[k]);
-    else items=Object.values(G.N).filter(n=>n.t===c.k && ((c.k!=='C' && c.k!=='S') || visible(n)));
+    else items=Object.values(G.N).filter(n=>n.t===c.k && ((c.k!=='C' && c.k!=='S' && !(st.calc==='err' && c.k==='D')) || visible(n)));
     items=items.filter(n=>n && (match(n) || st.path[i]===n.k));
     const parentS = anc && anc.startsWith('S:') ? anc : null;
     items.forEach(n=>{ n._direct = parentS && n.t==='C' ? (G.down[n.k]||new Set()).has(parentS) : null; });
@@ -181,10 +192,11 @@ function draw(){
     col.items.forEach((n,j)=>{
       const y=TOP+j*(NH+NG); P[n.k]={x,y,ci};
       const onPath=st.path[col.i]===n.k;
-      const cls=['ln', n.k===st.sel?'sel':'', onPath?'on':'', ((n.t==='C'&&!n.used)||(n.t==='S'&&n.unused))?'unused':''].join(' ');
-      const tag = n.t==='E' ? (n.mode==='extract'?'EXTRACT':'LIVE') : n.t==='C' && !n.used ? (n.hidden?'MASQUÉ':'AFFICHÉ') : n.t==='S' && n.unused ? (n.hidden?'MASQUÉE':'AFFICHÉE') : n.t==='C' && n._direct===false ? 'INDIRECT' : n.t==='T' && n.ct && !/bigquery/i.test(n.ct) ? n.ct.toUpperCase().slice(0,10) : '';
+      const cls=['ln', n.k===st.sel?'sel':'', onPath?'on':'', ((n.t==='C'&&!n.used)||(n.t==='S'&&n.unused))?'unused':'', n.err&&n.err.sev==='E'?'err':'', n.err&&n.err.sev!=='E'?'warn':'', n.hitBy?'hit':''].join(' ');
+      const etag = n.err ? (n.err.kind==='ref' ? (n.err.sev==='E'?'ERREUR':'CASSÉ') : n.err.kind==='ext'?'EXTRAIT KO':'ALERTE') : '';
+      const tag = etag ? etag : n.t==='E' ? (n.mode==='extract'?'EXTRACT':'LIVE') : n.t==='C' && !n.used ? (n.hidden?'MASQUÉ':'AFFICHÉ') : n.t==='S' && n.unused ? (n.hidden?'MASQUÉE':'AFFICHÉE') : n.t==='C' && n._direct===false ? 'INDIRECT' : n.t==='T' && n.ct && !/bigquery/i.test(n.ct) ? n.ct.toUpperCase().slice(0,10) : '';
       const cnt = n.t==='D' ? upOf(n.k,'S').length : n.t==='S' ? upOf(n.k,'C').length : 0;
-      h+='<button type="button" class="'+cls+'" data-k="'+esc(n.k)+'" data-c="'+col.i+'" style="left:'+x+'px;top:'+y+'px;width:'+CW+'px" title="'+esc(n.full||n.name)+'"><span class="ic" style="background:'+COLS[CI[n.t]].c+'">'+COLS[CI[n.t]].i+'</span><span class="nm">'+esc(n.name)+'</span>'+(tag?'<span class="k'+(((n.t==='C'&&!n.used)||(n.t==='S'&&n.unused))?' red':'')+'" title="'+(((n.t==='C'&&!n.used)||(n.t==='S'&&n.unused))?'Inutilisé · '+(n.hidden?'masqué':'affiché'):'')+'">'+esc(tag)+'</span>':'')+(cnt?'<span class="cnt">'+cnt+'</span>':'')+'<span class="chev" aria-hidden="true">›</span></button>';
+      h+='<button type="button" class="'+cls+'" data-k="'+esc(n.k)+'" data-c="'+col.i+'" style="left:'+x+'px;top:'+y+'px;width:'+CW+'px" title="'+esc(n.full||n.name)+'"><span class="ic" style="background:'+COLS[CI[n.t]].c+'">'+COLS[CI[n.t]].i+'</span><span class="nm">'+esc(n.name)+'</span>'+(n.hitBy&&!n.err?'<span class="bug" title="Impacté par '+n.hitBy.size+' erreur'+(n.hitBy.size>1?'s':'')+'">⚠</span>':'')+(tag?'<span class="k'+(etag||((n.t==='C'&&!n.used)||(n.t==='S'&&n.unused))?' red':'')+'" title="'+(((n.t==='C'&&!n.used)||(n.t==='S'&&n.unused))?'Inutilisé · '+(n.hidden?'masqué':'affiché'):'')+'">'+esc(tag)+'</span>':'')+(cnt?'<span class="cnt">'+cnt+'</span>':'')+'<span class="chev" aria-hidden="true">›</span></button>';
     });
   });
   stage.innerHTML=h; stage.style.width=Wd+'px'; stage.style.height=H+'px';
@@ -219,11 +231,41 @@ function hl(src, n){
     let m;
     if(rest.startsWith('//')){ const e=s.indexOf('\n',i); const t=e<0?s.slice(i):s.slice(i,e); out+='<span class="c">'+esc(t)+'</span>'; i+=t.length; continue; }
     if(ch==='"'||ch==="'"){ let j=i+1; while(j<s.length && s[j]!==ch) j++; const t=s.slice(i,j+1); out+='<span class="s">'+esc(t)+'</span>'; i+=t.length; continue; }
-    if(ch==='['){ const j=s.indexOf(']',i); const t=j<0?s.slice(i):s.slice(i,j+1); const kk=pool[low(t.slice(1,-1))]; out+= kk ? '<button type="button" class="f" data-k="'+esc(kk)+'">'+esc(t)+'</button>' : '<span class="f">'+esc(t)+'</span>'; i+=t.length; continue; }
+    if(ch==='['){ const j=s.indexOf(']',i); let t=j<0?s.slice(i):s.slice(i,j+1);
+      const bad=n&&n.err&&n.err.refs&&n.err.refs.find(r=>s.startsWith('['+r+']',i)); if(bad){ t='['+bad+']'; out+='<span class="bad" title="Référence introuvable">'+esc(t)+'</span>'; i+=t.length; continue; }
+      const kk=pool[low(t.slice(1,-1))]; out+= kk ? '<button type="button" class="f" data-k="'+esc(kk)+'">'+esc(t)+'</button>' : '<span class="f">'+esc(t)+'</span>'; i+=t.length; continue; }
     if((m=rest.match(/^[A-Za-z_][A-Za-z0-9_]*/))){ const w=m[0]; out+= KW.test(w) ? '<span class="kw">'+esc(w)+'</span>' : /^\s*\(/.test(s.slice(i+w.length)) ? '<span class="kw" style="color:#C9A7FF;font-weight:500">'+esc(w)+'</span>' : esc(w); i+=w.length; continue; }
     out+=esc(ch); i++;
   }
   return out;
+}
+
+/* ---------- erreurs ---------- */
+const KIND={ref:'Référence introuvable', ext:'Actualisation d’extrait en échec', dqw:'Avertissement qualité des données'};
+function errLine(b){
+  const sk=b.sk||[]; const dk=new Set(); sk.forEach(k=>[...(G.down[k]||[])].filter(d=>d.startsWith('D:')).forEach(d=>dk.add(d)));
+  if(b.kind==='ref') return b.sev==='E'
+    ? '<b>'+esc(b.name)+'</b> : référence'+(b.refs.length>1?'s':'')+' introuvable'+(b.refs.length>1?'s':'')+' '+b.refs.slice(0,3).map(r=>'<code>['+esc(r)+']</code>').join(', ')+'. Impacte '+sk.length+' feuille'+(sk.length>1?'s':'')+(dk.size?' et '+dk.size+' tableau'+(dk.size>1?'x':'')+' de bord':'')+'.'
+    : '<b>'+esc(b.name)+'</b> : champ cassé ('+b.refs.slice(0,2).map(r=>'<code>['+esc(r)+']</code>').join(', ')+') mais utilisé nulle part. Aucun impact visible, à supprimer.';
+  if(b.kind==='ext') return '<b>'+esc(b.name)+'</b> : actualisation de l’extrait en échec. '+esc(b.msg)+'. Les tableaux de bord affichent des données figées.';
+  return '<b>'+esc(b.name)+'</b> : '+esc(b.msg||'avertissement qualité actif sur la source.');
+}
+function errSection(n){
+  const b=n.err; if(!b) return '';
+  let h='<div class="sec"><div class="eyebrow" style="color:#9A0016">'+(b.sev==='E'?'Erreur':'Anomalie')+' · '+esc(KIND[b.kind]||b.kind)+'</div><ul class="flags">';
+  if(b.kind==='ref'){
+    h+='<li>La formule fait référence à '+b.refs.map(r=>'<code>['+esc(r)+']</code>').join(', ')+', '+(b.refs.length>1?'qui n’existent':'qui n’existe')+' pas dans la source « '+esc((G.N[n.dsk]||{}).name||'')+' » ni dans les paramètres du classeur.</li>';
+    h+='<li class="info"><b>Cause probable</b> : champ renommé ou supprimé en amont (colonne BigQuery renommée, champ retiré de la source publiée, ou copie de champ « (copie)_… » supprimée).</li>';
+    h+=b.sev==='E' ? '<li class="info"><b>Effet</b> : les feuilles qui utilisent ce champ, directement ou via un autre calcul, affichent une erreur ou des valeurs vides.</li><li class="ok"><b>Correction</b> : remplacer la référence dans la formule par le nouveau nom du champ, ou restaurer le champ dans la source.</li>'
+                   : '<li class="ok">Aucune feuille ne l’utilise : supprimer le champ suffit.</li>';
+  } else if(b.kind==='ext'){
+    h+='<li>'+esc(b.msg)+'</li><li class="info"><b>Effet</b> : les données de tous les classeurs connectés à cette source restent figées à la dernière actualisation réussie.</li><li class="ok"><b>Correction</b> : vérifier l’erreur dans l’historique des tâches (identifiants, table renommée, quota BigQuery), puis relancer l’actualisation.</li>';
+  } else h+='<li>'+esc(b.msg)+'</li>';
+  return h+'</ul></div>';
+}
+function hitSection(n){
+  if(!n.hitBy||n.err) return '';
+  return '<div class="sec"><div class="eyebrow" style="color:#9A0016">Impacté par une erreur</div>'+listOf([...n.hitBy],'')+'</div>';
 }
 
 /* ---------- panneau ---------- */
@@ -241,6 +283,10 @@ function panel(){
     const C=all.filter(x=>x.t==='C'), un=C.filter(c=>!c.used).length, ext=all.filter(x=>x.t==='E'&&x.mode==='extract').length, emb=all.filter(x=>x.t==='E').length, pub=cnt('P');
     h+='<div><div class="eyebrow">Classeur · '+esc(G.W.proj||'')+'</div><h2>'+esc(G.W.name)+'</h2></div>';
     h+='<div class="grid2"><div class="cell"><span>Tableaux de bord</span><b>'+all.filter(x=>x.t==='D'&&!x.virtual).length+'</b></div><div class="cell"><span>Feuilles</span><b>'+cnt('S')+'</b></div><div class="cell"><span>Sources</span><b>'+emb+(pub?' <small style="font-size:12px;color:var(--muted)">dont '+pub+' publiée'+(pub>1?'s':'')+'</small>':'')+'</b></div><div class="cell"><span>Tables BigQuery</span><b>'+cnt('T')+'</b></div><div class="cell"><span>Champs calculés</span><b>'+C.length+'</b></div><div class="cell"><span>Non utilisés</span><b>'+un+'</b></div><div class="cell"><span>Propriétaire</span><b class="sm">'+esc((G.W.own||'—').split('@')[0])+'</b></div><div class="cell"><span>Modifié le</span><b class="sm">'+dfr(G.W.upd)+'</b></div></div>';
+    const BE=G.B.filter(b=>b.sev==='E'), BW=G.B.filter(b=>b.sev!=='E');
+    if(G.B.length){ h+='<div class="sec"><div class="eyebrow" style="color:#9A0016">Erreurs détectées · '+BE.length+(BW.length?' <span style="color:var(--muted);font-weight:500">+ '+BW.length+' champ'+(BW.length>1?'s cassés inutilisés':' cassé inutilisé')+'</span>':'')+'</div><div class="errs">'+
+      G.B.slice(0,40).map((b,i)=>'<button type="button" class="eb '+(b.sev==='E'?'e':'w')+'" data-b="'+i+'">'+errLine(b)+'</button>').join('')+'</div>'+(G.B.length>40?'<p class="hint">40 premières affichées · filtre « En erreur » pour tout voir.</p>':'')+'<p class="hint">Contrôle Metadata API du '+dfr(G.W.chk||'')+'.</p></div>'; }
+    else h+='<ul class="flags"><li class="ok">Aucune erreur détectée sur ce classeur (formules, extraits, alertes qualité).</li></ul>';
     const f=[];
     if(G.W.partial) f.push(['', 'Lineage partiel : ce classeur dépasse la limite de la Metadata API (20 000 nœuds).']);
     if(un) f.push(['', un+' champ'+(un>1?'s calculés sont supprimables':' calculé est supprimable')+' sans aucun changement : référencé'+(un>1?'s':'')+' nulle part dans le classeur (feuilles, champs, actions, visibilité dynamique, filtres).']);
@@ -257,6 +303,7 @@ function panel(){
   } else {
     const col=COLS[CI[n.t]];
     h+='<div><div class="eyebrow">'+esc(col.l.replace(/s$/,'').replace('Champs calculé','Champ calculé').replace('Tables BigQuery','Table').replace('Sources publiées','Source publiée').replace('Sources du classeur','Source du classeur').replace('Tableaux de bord','Tableau de bord'))+'</div><h2>'+esc(n.name)+'</h2></div>';
+    h+=errSection(n)+hitSection(n);
     if(n.t==='C'){
       h+='<div class="meta">'+(n.dt?'<span class="pill blue">'+esc(n.dt)+'</span>':'')+(n.role?'<span class="pill">'+esc(n.role)+'</span>':'')+(n.used?(n.elsewhereOnly?'<span class="pill">Utilisé dans d’autres classeurs</span>':'<span class="pill">Utilisé</span>'):'<span class="pill red">Non utilisé · supprimable</span><span class="pill">'+(n.hidden?'Masqué dans le volet Données':'Affiché dans le volet Données')+'</span>')+(n.dsk && n.dsk.startsWith('P:')?'<span class="pill">Source publiée</span>':'')+'</div>';
       { const W2={sheet:'utilisé directement dans une feuille de ce classeur', lineage:'utilisé par '+(n.nSheets||0)+' feuille(s), directement ou via un autre champ (lineage Tableau)', elsewhere:'source publiée : utilisé par '+(n.nSheets||0)+' feuille(s) dans '+(n.nWb||0)+' classeur(s) du site', dsfilter:'sert de filtre de source de données', dep:'référencé dans la formule d’un champ utilisé', twb:'référencé ailleurs dans le classeur : formule d’un autre champ, action, visibilité dynamique d’une zone, filtre, ensemble, groupe ou hiérarchie', notwb:'XML du classeur non analysable : considéré utilisé par prudence', unknown:'statut non remonté par la Metadata API : considéré utilisé par prudence', partial:'lineage partiel de ce classeur : considéré utilisé par prudence'};
@@ -303,6 +350,7 @@ function panel(){
   }
   p.innerHTML=h;
   p.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>select(b.dataset.k));
+  p.querySelectorAll('[data-b]').forEach(b=>b.onclick=()=>{ const e=G.B[+b.dataset.b]; if(e&&e.k){ if(e.sev!=='E'&&st.calc==='used'){ st.calc='all'; syncChips(); } select(e.k); } });
   const bk=$('lBack'); if(bk) bk.onclick=()=>{ st.path={}; st.sel=null; draw(); panel(); focusBar(); };
 }
 function scrollTo(k){ const el=$('lStage').querySelector('[data-k="'+CSS.escape(k)+'"]'); if(el) el.scrollIntoView({block:'center',inline:'nearest',behavior:'smooth'}); }
@@ -311,7 +359,9 @@ function scrollTo(k){ const el=$('lStage').querySelector('[data-k="'+CSS.escape(
 function kpis(){
   const k=[['Classeurs analysés', fmt(WBS.length)]];
   if(G){ const all=Object.values(G.N), C=all.filter(x=>x.t==='C');
-    k.push(['Tableaux de bord',fmt(all.filter(x=>x.t==='D'&&!x.virtual).length)],['Sources',fmt(all.filter(x=>x.t==='E').length)],['Tables BigQuery',fmt(all.filter(x=>x.t==='T').length)],['Champs calculés',fmt(C.length)],['Champs inutilisés',fmt(C.filter(c=>!c.used).length),C.some(c=>!c.used)],['Feuilles inutilisées',fmt(all.filter(x=>x.t==='S'&&x.unused).length),all.some(x=>x.t==='S'&&x.unused)]); }
+    k.push(['Tableaux de bord',fmt(all.filter(x=>x.t==='D'&&!x.virtual).length)],['Sources',fmt(all.filter(x=>x.t==='E').length)],['Tables BigQuery',fmt(all.filter(x=>x.t==='T').length)],['Champs calculés',fmt(C.length)],['Champs inutilisés',fmt(C.filter(c=>!c.used).length),C.some(c=>!c.used)],['Feuilles inutilisées',fmt(all.filter(x=>x.t==='S'&&x.unused).length),all.some(x=>x.t==='S'&&x.unused)]);
+    const ne=G.B.filter(b=>b.sev==='E').length; k.splice(1,0,['Erreurs',fmt(ne),ne>0]); }
+  else { const e=WBS.filter(w=>w.nE>0); k.push(['Classeurs en erreur',fmt(e.length),e.length>0],['Erreurs',fmt(e.reduce((a,w)=>a+w.nE,0)),e.length>0]); }
   $('lKpis').innerHTML=k.map(([l,v,a])=>'<div class="kpi'+(a?' alert':'')+'"><b>'+v+'</b><span>'+l+'</span></div>').join('');
 }
 function dropList(q){
@@ -319,7 +369,7 @@ function dropList(q){
   const hits=WBS.filter(w=>!ql || low(w.name).includes(ql) || low(w.proj).includes(ql) || low(w.own).includes(ql));
   if(!hits.length){ d.innerHTML='<div class="none">Aucun classeur trouvé.</div>'; d.hidden=false; return; }
   const groups={}; hits.slice(0,300).forEach(w=>(groups[w.proj||'—']=groups[w.proj||'—']||[]).push(w));
-  d.innerHTML=Object.keys(groups).sort((a,b)=>a.localeCompare(b,'fr')).map(g=>'<div class="grp">'+esc(g)+'</div>'+groups[g].sort((a,b)=>a.name.localeCompare(b.name,'fr')).map(w=>'<button type="button" data-w="'+esc(w.id)+'"><span class="nm">'+esc(w.name)+'</span><span class="r">'+esc((w.own||'').split('@')[0])+'</span></button>').join('')).join('')+(hits.length>300?'<div class="none">'+(hits.length-300)+' autres résultats : affinez la recherche.</div>':'');
+  d.innerHTML=Object.keys(groups).sort((a,b)=>a.localeCompare(b,'fr')).map(g=>'<div class="grp">'+esc(g)+'</div>'+groups[g].sort((a,b)=>a.name.localeCompare(b.name,'fr')).map(w=>'<button type="button" data-w="'+esc(w.id)+'"><span class="nm">'+esc(w.name)+'</span>'+(w.nE?'<span class="eb-n" title="'+w.nE+' erreur(s)">⚠ '+w.nE+'</span>':'')+'<span class="r">'+esc((w.own||'').split('@')[0])+'</span></button>').join('')).join('')+(hits.length>300?'<div class="none">'+(hits.length-300)+' autres résultats : affinez la recherche.</div>':'');
   d.hidden=false;
   d.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{ d.hidden=true; openWb(b.dataset.w); });
 }
@@ -329,35 +379,55 @@ async function openWb(id){
   try{
     await WD.applyFilterAsync('wb',[id],tableau.FilterUpdateType.Replace);
     const rows=(await readRows(WD)).filter(r=>r.wb===id);
-    cur=id; G=buildGraph(rows); if(!G.W) G.W={id, name:w.name, proj:w.proj, own:w.own, upd:w.upd};
+    cur=id; G=buildGraph(rows); if(!G.W) G.W={id, name:w.name, proj:w.proj, own:w.own, upd:w.upd}; G.W.chk=w.chk;
     st.sel=null; st.path={}; focusBar(); $('lSub').textContent=w.proj+' · '+w.name;
     try{ localStorage.setItem('lin.wb',id); }catch(e){}
   }catch(e){ G=null; $('lWelcome').hidden=false; $('lWelcome').innerHTML='<div><h3>Lecture impossible</h3><p>Le lineage de ce classeur n’a pas pu être lu.</p></div>'; }
-  $('lLoading').hidden=true; kpis(); draw(); panel(); $('lCanvas').scrollTo({left:0,top:0});
+  $('lLoading').hidden=true; syncChips(); kpis(); draw(); panel(); $('lCanvas').scrollTo({left:0,top:0});
 }
 
 /* ---------- démarrage ---------- */
 function mount(){
-  const css=document.createElement('link'); css.rel='stylesheet'; css.href='lineage.css?v=11'; document.head.appendChild(css);
+  const css=document.createElement('link'); css.rel='stylesheet'; css.href='lineage.css?v=12'; document.head.appendChild(css);
   const app=document.createElement('div'); app.className='app lin'; app.id='lin'; app.hidden=true;
   app.innerHTML=
    '<header class="head"><div class="brand"><div class="mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="5" rx="1.5"/><rect x="15" y="4" width="6" height="5" rx="1.5"/><rect x="9" y="15" width="6" height="5" rx="1.5"/><path d="M6 9v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9M12 13v2"/></svg></div><div><h1>Lineage · Tableau France</h1><p id="lSub">Du tableau de bord aux tables BigQuery</p></div></div><div class="kpis" id="lKpis"></div></header>'+
    '<div class="tools"><label class="picker"><span style="position:absolute;left:-9999px">Choisir un classeur</span><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#93A2B6" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="lPick" type="search" placeholder="Choisir un classeur (nom, projet, propriétaire)…" autocomplete="off"><div class="drop" id="lDrop" hidden></div></label>'+
+   '<button type="button" class="chip chip-err" id="lAlerts" title="Revenir à la liste des erreurs du site">⚠ Alertes du site</button>'+
    '<button type="button" class="focus" id="lFocus" hidden></button>'+
    '<div class="chips" role="group" aria-label="Champs calculés" id="lCalc"></div><span class="sep" aria-hidden="true"></span>'+
    '<label class="search" style="max-width:260px"><span style="position:absolute;left:-9999px">Chercher dans le lineage</span><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#93A2B6" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="lQ" type="search" placeholder="Champ, formule, table…" autocomplete="off"></label></div>'+
    '<div class="main" style="padding-top:10px"><div class="canvas" id="lCanvas" aria-label="Graphe de lineage"><div class="stage" id="lStage"></div><div class="welcome" id="lWelcome"><div><h3>Choisissez un classeur</h3><p>Recherchez-le par son nom, son projet ou son propriétaire.</p></div></div><div class="loading" id="lLoading" hidden><div class="ring" style="width:36px;height:36px;border-radius:50%;border:3px solid var(--blue-100);border-top-color:var(--blue);animation:spin 1s linear infinite"></div></div></div><aside class="panel" id="lPanel" aria-live="polite"></aside></div>';
   document.body.appendChild(app);
-  const chips=[['used','Utilisés'],['all','Tout'],['unused','Inutilisés (champs et feuilles)']];
-  $('lCalc').innerHTML=chips.map(([k,l])=>'<button type="button" class="chip" data-c="'+k+'" aria-pressed="'+(st.calc===k)+'">'+l+'</button>').join('');
-  $('lCalc').querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{ st.calc=b.dataset.c; $('lCalc').querySelectorAll('[data-c]').forEach(x=>x.setAttribute('aria-pressed',x===b)); draw(); });
+  syncChips();
   const pick=$('lPick');
   pick.addEventListener('focus',()=>{ pick.select(); dropList(''); });
   pick.addEventListener('input',e=>dropList(e.target.value));
   pick.addEventListener('keydown',e=>{ if(e.key==='Escape') $('lDrop').hidden=true; if(e.key==='Enter'){ const b=$('lDrop').querySelector('[data-w]'); if(b) b.click(); } });
   document.addEventListener('click',e=>{ if(!e.target.closest('.picker')) $('lDrop').hidden=true; });
   $('lQ').addEventListener('input',e=>{ st.q=e.target.value.trim(); draw(); });
+  $('lAlerts').onclick=()=>{ G=null; cur=null; st.path={}; st.sel=null; try{ localStorage.removeItem('lin.wb'); }catch(e){} $('lPick').value=''; $('lWelcome').hidden=false; $('lSub').textContent='Du tableau de bord aux tables BigQuery'; siteAlerts(); kpis(); draw(); panel(); focusBar(); syncChips(); };
   $('lFocus').onclick=()=>{ st.path={}; st.sel=null; draw(); panel(); focusBar(); $('lCanvas').scrollTo({left:0,top:0}); };
+}
+function syncChips(){
+  const ne=G?G.B.length:0;
+  const chips=[['used','Utilisés'],['all','Tout'],['unused','Inutilisés (champs et feuilles)'],['err','En erreur'+(G?' · '+ne:'')]];
+  $('lCalc').innerHTML=chips.map(([k,l])=>'<button type="button" class="chip'+(k==='err'?' chip-err':'')+'" data-c="'+k+'" aria-pressed="'+(st.calc===k)+'">'+l+'</button>').join('');
+  $('lCalc').querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{ st.calc=b.dataset.c; syncChips(); st.path={}; st.sel=null; draw(); panel(); focusBar(); });
+}
+/* écran d'accueil : alertes du site */
+let ALLB=[];
+function siteAlerts(){
+  const wl=$('lWelcome'); if(G) return;
+  const E=WBS.filter(w=>w.nE>0).sort((a,b)=>b.nE-a.nE||a.name.localeCompare(b.name,'fr'));
+  const byK={}; ALLB.forEach(b=>{ if(b.sev==='E') byK[b.kind]=(byK[b.kind]||0)+1; });
+  let h='<div class="alerts"><div class="ah"><h3>Alertes du site</h3><p class="hint">Contrôle automatique via la Metadata API'+(WBS[0]&&WBS[0].chk?' du '+dfr(WBS[0].chk):'')+' : formules qui référencent un champ disparu, extraits en échec, avertissements qualité. Choisissez un classeur ci-dessus pour son lineage complet.</p></div>';
+  h+='<div class="acards"><div class="ac"><b>'+E.length+'</b><span>classeurs avec une erreur visible</span></div><div class="ac"><b>'+(byK.ref||0)+'</b><span>champs en erreur utilisés dans des feuilles</span></div><div class="ac"><b>'+(byK.ext||0)+'</b><span>liens classeur → extrait en échec</span></div><div class="ac muted"><b>'+ALLB.filter(b=>b.sev!=='E').length+'</b><span>champs cassés inutilisés (sans impact)</span></div></div>';
+  if(E.length) h+='<table class="atab"><thead><tr><th>Classeur</th><th>Projet</th><th class="n">Erreurs</th><th>Cause</th></tr></thead><tbody>'+E.map(w=>{ const ks=[...new Set(ALLB.filter(b=>b.wb===w.id&&b.sev==='E').map(b=>b.kind))]; return '<tr data-w="'+esc(w.id)+'"><td><b>'+esc(w.name)+'</b><small>'+esc((w.own||'').split('@')[0])+'</small></td><td>'+esc(w.proj)+'</td><td class="n"><span class="eb-n">⚠ '+w.nE+'</span></td><td>'+ks.map(k=>'<span class="pill red">'+esc(KIND[k]||k)+'</span>').join(' ')+'</td></tr>'; }).join('')+'</tbody></table>';
+  else h+='<ul class="flags"><li class="ok">Aucune erreur visible détectée sur le site.</li></ul>';
+  h+='<p class="hint">Cliquez sur un classeur pour voir le champ en cause, sa formule et les feuilles impactées.</p></div>';
+  wl.innerHTML=h; wl.classList.add('wa');
+  wl.querySelectorAll('[data-w]').forEach(tr=>tr.onclick=()=>openWb(tr.dataset.w));
 }
 window.LIN_START = async function(){
   mount();
@@ -367,8 +437,9 @@ window.LIN_START = async function(){
   try{
     const rows = await readRows(WL||WD);
     const seen=new Set();
-    WBS = rows.filter(r=>r.type==='W' && r.wb!=='__none__' && !seen.has(r.wb) && seen.add(r.wb)).map(r=>{ const [proj,own,upd]=r.info.split('|'); return {id:r.wb,name:r.name,proj:proj||'',own:own||'',upd:upd||''}; });
-    kpis(); panel(); draw();
+    WBS = rows.filter(r=>r.type==='W' && r.wb!=='__none__' && !seen.has(r.wb) && seen.add(r.wb)).map(r=>{ const [proj,own,upd,,nE,nW,chk]=r.info.split('|'); return {id:r.wb,name:r.name,proj:proj||'',own:own||'',upd:upd||'',nE:+nE||0,nW:+nW||0,chk:chk||''}; });
+    ALLB = rows.filter(r=>r.type==='B').map(r=>{ const [sev,kind]=r.info.split('|'); return {wb:r.wb,name:r.name,sev,kind}; });
+    kpis(); panel(); draw(); siteAlerts();
     let last=null; try{ last=localStorage.getItem('lin.wb'); }catch(e){}
     if(last && WBS.some(w=>w.id===last)) openWb(last);
   }catch(e){
