@@ -96,6 +96,8 @@ function periods(g, seen){
   for(let i=GR.W.n-1;i>=0;i--){ const d=new Date(last); d.setDate(d.getDate()-7*i); out.push(ymd(d)); }
   return out;
 }
+function pstart(g,k){ if(g==='D'||g==='W') return new Date(k+'T00:00:00').getTime(); if(g==='M') return new Date(+k.slice(0,4), +k.slice(5,7)-1, 1).getTime(); const y=+k.slice(0,4), q=+k.slice(-1); return new Date(y,(q-1)*3,1).getTime(); }
+const HIST0 = Date.now()-365*DAY;
 function label(g,k,short){
   if(g==='D'){ const [y,m,d]=k.split('-'); return short? d+'/'+m : d+' '+MO[+m-1]+' '+y; }
   if(g==='W'){ const [y,m,d]=k.split('-'); return short? d+'/'+m : 'Semaine du '+d+' '+MO[+m-1]+' '+y; }
@@ -115,7 +117,7 @@ function bans(S){
   const g=GR[st.g].l.toLowerCase(); const c=k=>site[k]||{u:0,v:0};
   const act=WB.filter(x=>wv(x)>0); const totV=act.reduce((a,x)=>a+wv(x),0);
   const top=act.slice().sort((a,b)=>wv(b)-wv(a)).slice(0,10).reduce((a,x)=>a+wv(x),0);
-  const sleep=WB.filter(x=>!(x.vv['90']>0)).length;
+  const vis=act.reduce((a,x)=>a+wu(x),0);
   const b=[
     [fmt(c(prev).u)+dtag(delta(c(prev).u,c(prev2).u)),'Visiteurs uniques · '+g+' précédent'+(st.g==='W'||st.g==='M'?'':'e')],
     [fmt(c(prev).v)+dtag(delta(c(prev).v,c(prev2).v)),'Visites · '+g+' précédent'+(st.g==='W'||st.g==='M'?'':'e')],
@@ -123,7 +125,7 @@ function bans(S){
     [fmt(totV),'Visites · '+WIN[st.w]],
     [fmt(act.length),'Classeurs consultés · '+WIN[st.w]],
     [(totV?Math.round(top*100/totV):0)+' %','Part des 10 classeurs les plus vus'],
-    [fmt(sleep),'Classeurs sans visite > 90 j (vus sur 12 mois)',true]
+    [(c(prev).u?(c(prev).v/c(prev).u):0).toFixed(1).replace('.',','),'Visites par visiteur · '+g+' précédent'+(st.g==='W'||st.g==='M'?'':'e')]
   ];
   $('useBans').innerHTML=b.map(x=>'<div class="ban'+(x[2]?' alert':'')+'"><b>'+x[0]+'</b><span>'+x[1]+'</span></div>').join('');
 }
@@ -132,17 +134,17 @@ function chart(S){
   const ks=S.keys, src = st.wb ? (S.byWb[st.wb]||{}) : S.site; const vals=ks.map(k=>(src[k]||{})[st.m]||0);
   const max=Math.max(1,...vals); const Wd=1000, H=230, pl=44, pr=8, pt=16, pb=26; const iw=Wd-pl-pr, ih=H-pt-pb; const n=ks.length; const bw=iw/n;
   const nice=(m)=>{ const p=Math.pow(10,Math.floor(Math.log10(m))); const f=m/p; return (f<=1?1:f<=2?2:f<=5?5:10)*p; }; const top=nice(max);
-  let s='<svg viewBox="0 0 '+Wd+' '+H+'" preserveAspectRatio="none" class="uchart" role="img" aria-label="'+esc(MET[st.m]+' par '+GR[st.g].l.toLowerCase())+'">';
+  let s='<svg viewBox="0 0 '+Wd+' '+H+'" preserveAspectRatio="none" class="uchart" role="img" aria-label="'+esc(MET[st.m]+' par '+GR[st.g].l.toLowerCase())+'"><defs><pattern id="uhatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#D7E5F6"/><line x1="0" y1="0" x2="0" y2="6" stroke="#8DB8EA" stroke-width="3"/></pattern></defs>';
   for(let i=0;i<=4;i++){ const y=pt+ih-ih*i/4; s+='<line x1="'+pl+'" x2="'+(Wd-pr)+'" y1="'+y+'" y2="'+y+'" class="gl"/><text x="'+(pl-6)+'" y="'+(y+3.5)+'" class="ax" text-anchor="end">'+fmt(top*i/4)+'</text>'; }
   const step=Math.ceil(n/14);
-  ks.forEach((k,i)=>{ const h=vals[i]*ih/top, x=pl+i*bw+bw*0.14, w=Math.max(1,bw*0.72), y=pt+ih-h; const curP=i===n-1;
-    s+='<g class="bk"><rect x="'+(pl+i*bw)+'" y="'+pt+'" width="'+bw+'" height="'+ih+'" class="hit"/><rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+Math.max(h,vals[i]?1.5:0)+'" rx="'+Math.min(3,w/3)+'" class="'+(curP?'b cur':'b')+'"/><title>'+esc(label(st.g,k)+(curP?' (en cours)':'')+' · '+fmt(vals[i])+' '+MET[st.m].toLowerCase())+'</title></g>';
+  ks.forEach((k,i)=>{ const h=vals[i]*ih/top, x=pl+i*bw+bw*0.14, w=Math.max(1,bw*0.72), y=pt+ih-h; const curP=i===n-1, part=!curP && pstart(st.g,k)<HIST0;
+    s+='<g class="bk"><rect x="'+(pl+i*bw)+'" y="'+pt+'" width="'+bw+'" height="'+ih+'" class="hit"/><rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+Math.max(h,vals[i]?1.5:0)+'" rx="'+Math.min(3,w/3)+'" class="'+(curP?'b cur':part?'b part':'b')+'"/><title>'+esc(label(st.g,k)+(curP?' (en cours)':part?' (historique incomplet)':'')+' · '+fmt(vals[i])+' '+MET[st.m].toLowerCase())+'</title></g>';
     if(i%step===0||curP) s+='<text x="'+(pl+i*bw+bw/2)+'" y="'+(H-8)+'" class="ax" text-anchor="middle">'+esc(label(st.g,k,true))+'</text>';
     if(n<=16 && vals[i]) s+='<text x="'+(pl+i*bw+bw/2)+'" y="'+(y-4)+'" class="vl" text-anchor="middle">'+fmt(vals[i])+'</text>'; });
   s+='</svg>';
   const tot=vals.reduce((a,b)=>a+b,0);
   $('useChartT').innerHTML = (st.wb?'<span class="k">'+esc(st.wb)+'</span> ':'Site france · ')+esc(MET[st.m])+' par '+esc(GR[st.g].l.toLowerCase())+' <small>· '+esc(GR[st.g].hint)+(st.m==='v'?' · total '+fmt(tot):'')+'</small>';
-  $('useChart').innerHTML=s+'<p class="hint">La dernière barre (plus claire) est la période en cours, donc incomplète.'+(st.m==='u'?' Visiteurs uniques comptés par période : ils ne s’additionnent pas d’une période à l’autre.':'')+'</p>';
+  $('useChart').innerHTML=s+'<p class="hint">La dernière barre (plus claire) est la période en cours, donc incomplète.'+(ks.some((k,i)=>i<n-1&&pstart(st.g,k)<HIST0)?' Les barres hachurées sont partielles : TS Events ne conserve que 12 mois.':'')+(st.m==='u'?' Visiteurs uniques comptés par période : ils ne s’additionnent pas d’une période à l’autre.':'')+'</p>';
 }
 
 function spark(S,wb){
@@ -173,7 +175,7 @@ async function panel(){
   if(!st.wb){
     const act=WB.filter(x=>wv(x)>0).sort((a,b)=>wv(b)-wv(a)); const f=[];
     const one=act.filter(x=>wu(x)===1).length; if(one) f.push(['',fmt(one)+' classeurs n’ont qu’un seul visiteur sur '+WIN[st.w]+' (souvent l’auteur) : à vérifier avant d’investir dessus.']);
-    const sleep=WB.filter(x=>!(x.vv['90']>0)); if(sleep.length) f.push(['',fmt(sleep.length)+' classeurs consultés dans l’année mais plus rien depuis 90 jours : candidats à l’archivage.']);
+    if(act.length){ const tv=act.reduce((a,x)=>a+wv(x),0), t10=act.slice(0,10).reduce((a,x)=>a+wv(x),0); f.push(['info','Les 10 classeurs les plus vus font '+Math.round(t10*100/tv)+' % des visites sur '+WIN[st.w]+'. Les classeurs dormants sont suivis dans l’onglet Arborescence.']); }
     if(S){ const k=S.keys, a=(S.site[k[k.length-2]]||{}).u||0, b=(S.site[k[k.length-3]]||{}).u||0, d=delta(a,b); if(d!=null && Math.abs(d)>=10) f.push([d<0?'':'info','Visiteurs uniques '+(d<0?'en baisse':'en hausse')+' de '+Math.abs(d)+' % sur la dernière '+(st.g==='W'?'semaine':st.g==='M'?'période mensuelle':st.g==='Q'?'période trimestrielle':'journée')+' complète.']); }
     let h='<div><div class="eyebrow">Site france</div><h2>Usage des tableaux de bord</h2><p class="hint">Visite = une vue ouverte (« Access View », TS Events). Visiteur unique = utilisateur distinct sur la période.</p></div>';
     h+='<ul class="flags">'+f.map(([c,t])=>'<li class="'+c+'">'+t+'</li>').join('')+'</ul>';
@@ -183,8 +185,8 @@ async function panel(){
   }
   const x=WB.find(w=>w.wb===st.wb)||{wb:st.wb,p:'—',u:{},vv:{}};
   const head='<div><button type="button" class="back" id="useBack">← Tous les classeurs</button><div class="eyebrow">Classeur · '+esc(x.p)+'</div><h2>'+esc(x.wb)+'</h2>'+(x.o?'<p class="hint">Propriétaire : '+esc(x.o)+'</p>':'')+'</div>'+
-    '<div class="grid3"><div class="cell"><span>Visiteurs uniques · '+esc(WIN[st.w])+'</span><b>'+fmt(wu(x))+'</b></div><div class="cell"><span>Visites · '+esc(WIN[st.w])+'</span><b>'+fmt(wv(x))+'</b></div><div class="cell"><span>Dernière visite</span><b style="font-size:15px">'+dfr(x.last)+'</b></div></div>';
-  p.innerHTML=head+'<p class="hint">Chargement des vues et des visiteurs…</p>'; $('useBack').onclick=()=>selectWb(null);
+    '<div class="pk"><div class="cell"><span>Visiteurs uniques · '+esc(WIN[st.w])+'</span><b>'+fmt(wu(x))+'</b></div><div class="cell"><span>Visites · '+esc(WIN[st.w])+'</span><b>'+fmt(wv(x))+'</b></div></div><p class="hint">Dernière visite le '+dfr(x.last)+' · '+(wu(x)?(wv(x)/wu(x)).toFixed(1).replace('.',','):'—')+' visites par visiteur</p>';
+  p.innerHTML=head+'<p class="hint loading">Chargement des vues et des visiteurs… (jusqu’à une minute pour les classeurs très consultés)</p>'; $('useBack').onclick=()=>selectWb(null);
   const rows=await loadDetail(st.wb); if(st.wb!==x.wb) return;
   if(!rows){ p.innerHTML=head+'<ul class="flags"><li>Détail indisponible. '+esc(ERR.slice(-1)[0]||'')+'</li></ul>'; $('useBack').onclick=()=>selectWb(null); return; }
   const views=aggViews(rows); const vmax=Math.max(1,...views.map(o=>st.m==='u'?o.us.size:o.v));
@@ -215,7 +217,7 @@ function controls(){
   $('useW').querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{ st.w=b.dataset.w; render(); });
 }
 function mount(){
-  ['licences.css?v=2','usage.css?v=1'].forEach(href=>{ if(!document.querySelector('link[href^="'+href.split('?')[0]+'"]')){ const l=document.createElement('link'); l.rel='stylesheet'; l.href=href; document.head.appendChild(l); } });
+  ['licences.css?v=2','usage.css?v=2'].forEach(href=>{ if(!document.querySelector('link[href^="'+href.split('?')[0]+'"]')){ const l=document.createElement('link'); l.rel='stylesheet'; l.href=href; document.head.appendChild(l); } });
   const app=document.createElement('div'); app.className='app lic use'; app.id='use'; app.hidden=true;
   app.innerHTML='<header class="head bans-wrap"><div class="bans" id="useBans"></div></header>'+
     '<div class="tools utools"><div class="cg"><span class="cl">Granularité</span><div class="chips" role="group" aria-label="Granularité" id="useG"></div></div>'+
