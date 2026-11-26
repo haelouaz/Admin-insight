@@ -15,8 +15,7 @@ const SEG = [
   {k:'reg', l:'Réguliers',           c:'#2D7FD3', d:'4 à 11 jours actifs sur 30 jours.', a:'Usage installé : vérifier que les tableaux de bord qu’ils ouvrent sont bien maintenus.'},
   {k:'occ', l:'Occasionnels',        c:'#8DB8EA', d:'1 à 3 jours actifs sur 30 jours.', a:'Abonnements (envoi par e-mail) ou alertes plutôt que visite spontanée.'},
   {k:'dec', l:'En décrochage',       c:'#E8A33D', d:'Actifs il y a 31 à 90 jours, plus rien depuis 30 jours.', a:'À relancer maintenant : contenu disparu, accès cassé, besoin non couvert ?'},
-  {k:'dor', l:'Dormants',            c:'#E2001A', d:'Dernière consultation il y a plus de 90 jours.', a:'Licence à récupérer si aucune reprise après relance.'},
-  {k:'inv', l:'Licence jamais utilisée', c:'#B8C3D1', d:'Licence occupée, aucune consultation sur 12 mois.', a:'Licence à retirer, ou attribution automatique par groupe à revoir.'}
+  {k:'dor', l:'Sans consultation > 90 j', c:'#E2001A', d:'Licence occupée, aucune vue consultée depuis 90 jours (ou jamais).', a:'Licence à récupérer, ou attribution automatique par groupe à revoir (ex. MAG_ALL → Viewer).'}
 ];
 const SI = Object.fromEntries(SEG.map(s=>[s.k,s]));
 let A=[], byU={}, TREND=[], PROJ=[], POP={}, SUMM={}, LIC=0, CREA={tot:0,act:0}, st={sel:null, q:''};
@@ -72,16 +71,16 @@ const bar=(parts,total,h)=>'<div class="bar" style="height:'+(h||10)+'px">'+part
 function counts(list){ const o={amb:0,reg:0,occ:0,dec:0,dor:0}; list.forEach(x=>o[x.seg]++); return o; }
 function bans(){
   const act30=A.filter(x=>x.d30>0), act90=A.filter(x=>x.d90>0), cs=counts(A.filter(x=>x.lic!=='Sans licence'));
-  const licActive=A.filter(x=>x.lic!=='Sans licence').length; const inv=Math.max(0,LIC-licActive);
+  const inv=Math.max(0,LIC-(cs.amb+cs.reg+cs.occ+cs.dec));
   const avgD=act30.length? act30.reduce((a,x)=>a+x.d30,0)/act30.length : 0;
   const v30=A.reduce((a,x)=>a+x.v30,0);
-  const b=[[fmt(act30.length),'Utilisateurs actifs 30 j'],[pct(act30.length,LIC)+' %','Taux d’adoption (actifs 30 j / licences)'],[fmt(act90.length),'Utilisateurs actifs 90 j'],[fmt(v30),'Consultations 30 j'],[avgD.toFixed(1).replace('.',','),'Jours actifs / utilisateur actif'],[fmt(cs.amb),'Ambassadeurs'],[fmt(cs.dor+inv),'Licences sans usage > 90 j',true],[fmt(CREA.act)+(CREA.tot?' <small>/ '+fmt(CREA.tot)+'</small>':''),'Creators qui créent (90 j)']];
+  const b=[[fmt(act30.length),'Utilisateurs actifs 30 j'],[pct(act30.length,LIC)+' %','Taux d’adoption (actifs 30 j / licences)'],[fmt(act90.length),'Utilisateurs actifs 90 j'],[fmt(v30),'Consultations 30 j'],[avgD.toFixed(1).replace('.',','),'Jours actifs / utilisateur actif'],[fmt(cs.amb),'Ambassadeurs'],[fmt(inv),'Licences sans consultation > 90 j',true],[fmt(CREA.act)+(CREA.tot?' <small>/ '+fmt(CREA.tot)+'</small>':''),'Creators qui créent (90 j)']];
   $('adoBans').innerHTML=b.map(x=>'<div class="ban'+(x[2]?' alert':'')+'"><b>'+x[0]+'</b><span>'+x[1]+'</span></div>').join('');
   return {inv};
 }
 function main(inv){
-  const lic=A.filter(x=>x.lic!=='Sans licence'); const cs=counts(lic); cs.inv=inv; const tot=lic.length+inv;
-  let h='<section class="block"><h3>Segmentation des utilisateurs licenciés</h3><p class="hint">Calculée sur les consultations de vues (événements « Access View » de TS Events). Base : '+fmt(tot)+' licences.</p>'+
+  const lic=A.filter(x=>x.lic!=='Sans licence'); const cs=counts(lic); const seen=cs.dor; cs.dor=inv; const tot=LIC||1;
+  let h='<section class="block"><h3>Segmentation des utilisateurs licenciés</h3><p class="hint">Base : les '+fmt(LIC)+' licences occupées aujourd’hui. Activité = vues consultées (« Access View », TS Events). Parmi les licences sans consultation depuis 90 jours, '+fmt(seen)+' utilisateurs avaient consulté entre 3 et 12 mois.</p>'+
     bar(SEG.map(s=>[cs[s.k]||0,s.c,s.l]),tot,16)+'<div class="segs">'+SEG.map(s=>'<button type="button" class="seg" data-s="'+s.k+'" aria-pressed="'+(st.sel===s.k)+'"><span class="sw" style="background:'+s.c+'"></span><b>'+fmt(cs[s.k]||0)+'<small> · '+pct(cs[s.k]||0,tot)+' %</small></b><span class="sl">'+s.l+'</span><span class="sd">'+s.d+'</span></button>').join('')+'</div></section>';
   // tendance
   if(TREND.length){ const max=Math.max(...TREND.map(t=>t.tot),1); const L=['Creator','Explorer','Viewer','Sans licence','Autre'], CL={Creator:'#003A78',Explorer:'#2D7FD3',Viewer:'#8DB8EA','Sans licence':'#B8C3D1',Autre:'#D5DCE6'};
@@ -107,8 +106,8 @@ function panel(){
   if(st.sel && SI[st.sel]){
     const s=SI[st.sel];
     h+='<div><div class="eyebrow">Segment</div><h2>'+esc(s.l)+'</h2><p class="hint">'+esc(s.d)+'</p></div><ul class="flags"><li class="info">'+esc(s.a)+'</li></ul>';
-    if(s.k==='inv') h+='<p class="hint">Ces comptes n’apparaissent pas dans TS Events : leur liste est dans l’onglet Licences & groupes (licences sans connexion).</p>';
-    else { const q=low(st.q); const list=A.filter(x=>x.seg===s.k && x.lic!=='Sans licence' && (!q||low(x.u).includes(q))).sort((a,b)=>(b.d30-a.d30)||((b.last||0)-(a.last||0)));
+    if(s.k==='dor') h+='<p class="hint">Liste ci-dessous : utilisateurs qui avaient consulté entre 3 et 12 mois. Ceux qui n’ont jamais rien consulté n’apparaissent pas dans TS Events (voir Licences & groupes).</p>';
+    { const q=low(st.q); const list=A.filter(x=>x.seg===s.k && x.lic!=='Sans licence' && (!q||low(x.u).includes(q))).sort((a,b)=>(b.d30-a.d30)||((b.last||0)-(a.last||0)));
       h+='<div class="sec"><div class="eyebrow">'+fmt(list.length)+' utilisateurs</div><div class="list">'+list.slice(0,300).map(x=>'<div class="urow"><span class="dot" style="background:'+s.c+'"></span><span class="nm"><b>'+esc(x.u)+'</b><small>'+esc(x.lic)+(x.pop?' · '+esc(x.pop):'')+'</small></span><span class="r">'+(x.d30?x.d30+' j / 30':'vu le '+dfr(x.last))+'</span></div>').join('')+'</div>'+(list.length>300?'<p class="hint">300 premiers affichés · affinez avec la recherche.</p>':'')+'</div>'; }
   } else {
     h+='<div><div class="eyebrow">Site france</div><h2>Adoption de Tableau</h2></div>';
