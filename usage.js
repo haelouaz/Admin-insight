@@ -56,7 +56,10 @@ async function loadSeries(g){
   if(SER[g]) return SER[g];
   const G=GR[g]; const ta=await rd(G.all), tw=await rd(G.sheet);
   const parse=(t)=>{ if(!t) return []; const n=t.columns.map(c=>low(c.fieldName)); const pi=n.findIndex(x=>['jour','semaine','mois','trimestre'].includes(x));
-    const wi=n.indexOf('workbook name'), ui=n.findIndex(isU), vi=n.findIndex(isV);
+    const wi=n.indexOf('workbook name'), vi=n.findIndex(isV); let ui=n.findIndex(isU);
+    if(ui<0) ui=n.findIndex((x,i)=>i!==pi&&i!==wi&&i!==vi&&x.includes('actor'));
+    if(ui<0) ui=n.findIndex((x,i)=>i!==pi&&i!==wi&&i!==vi);
+    window.__USE_COLS=(window.__USE_COLS||{}); window.__USE_COLS[t.name||n.join('|')]=n;
     return t.data.map(r=>({k:String(v(r,pi)||''), wb:wi>=0?v(r,wi):null, u:num(v(r,ui)), v:num(v(r,vi))})).filter(x=>x.k); };
   const all=parse(ta), per=parse(tw); const byWb={};
   per.forEach(x=>{ (byWb[x.wb]||(byWb[x.wb]={}))[x.k]={u:x.u,v:x.v}; });
