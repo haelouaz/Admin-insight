@@ -22,7 +22,7 @@ const dfr = t => { const d=new Date(t); return isNaN(d) ? '—' : d.toLocaleDate
 const low = s => String(s||'').trim().toLowerCase();
 
 let WD=null, WL=null, WBS=[], cur=null, G=null;
-const st = { sel:null, path:{}, calc:'used', q:'' };
+const st = { sel:null, path:{}, calc:'used', q:'', alert:null };
 
 /* ---------- lecture Tableau ---------- */
 async function readTable(ws){
@@ -128,12 +128,12 @@ function buildGraph(rows){
   if(orph.length){ N['D:__orphan']={k:'D:__orphan',t:'D',id:'__orphan',name:'Feuilles hors tableau de bord',virtual:true}; orph.forEach(sn=>link(sn.k,'D:__orphan')); }
   const rdeps={}; Object.entries(deps).forEach(([c,set])=>set.forEach(d=>(rdeps[d]=rdeps[d]||new Set()).add(c)));
   // erreurs détectées (contrôle Metadata API) : champ cassé → feuilles → tableaux de bord
-  const hit=(k,src)=>{ const n=N[k]; if(!n) return; (n.hitBy=n.hitBy||new Set()).add(src); };
+  const hit=(k,src,kind,sev)=>{ const n=N[k]; if(!n) return; (n.hitKinds=n.hitKinds||new Set()).add(kind); if(sev==='E') (n.hitBy=n.hitBy||new Set()).add(src); };
   B.forEach(b=>{
     if(b.kind==='ref'){ const c=N[key('C',b.id)]; if(!c) return; c.err=b; b.k=c.k;
       if(b.sev==='E'){ const sh=new Set(b.sheets.map(id=>key('S',id)).filter(k=>N[k])); [...(down[c.k]||[])].filter(k=>k.startsWith('S:')).forEach(k=>sh.add(k));
-        b.sk=[...sh]; sh.forEach(k=>{ hit(k,c.k); [...(down[k]||[])].filter(d=>d.startsWith('D:')).forEach(d=>hit(d,c.k)); }); }
-    } else { const src=N[key('P',b.ds)]; b.k=src?src.k:null; if(src){ src.err=b; if(b.sev==='E'){ const q=[src.k], seen=new Set(); while(q.length){ const x=q.shift(); [...(down[x]||[])].forEach(y=>{ if(!seen.has(y)){ seen.add(y); q.push(y); if(y.startsWith('S:')||y.startsWith('D:')) hit(y,src.k); } }); } } } }
+        b.sk=[...sh]; sh.forEach(k=>{ hit(k,c.k,'refE','E'); [...(down[k]||[])].filter(d=>d.startsWith('D:')).forEach(d=>hit(d,c.k,'refE','E')); }); }
+    } else { const src=N[key('P',b.ds)]; b.k=src?src.k:null; if(src){ src.err=b; { const q=[src.k], seen=new Set(); while(q.length){ const x=q.shift(); [...(down[x]||[])].forEach(y=>{ if(!seen.has(y)){ seen.add(y); q.push(y); if(y.startsWith('S:')||y.startsWith('D:')) hit(y,src.k,b.kind,b.sev); } }); } } } }
   });
   B.sort((a,b)=>(a.sev===b.sev?0:a.sev==='E'?-1:1) || ((b.sk||[]).length-(a.sk||[]).length) || a.name.localeCompare(b.name,'fr'));
   return {W, N, up, down, deps, rdeps, B};
@@ -150,8 +150,16 @@ function closure(k){
 }
 
 /* ---------- rendu ---------- */
+const alertOf = b => !b ? null : b.kind==='ref' ? (b.sev==='E'?'refE':'refW') : b.kind;
+function alertMatch(n){
+  const a=st.alert; if(!a) return true;
+  if(n.t==='C') return alertOf(n.err)===a;
+  if(n.t==='P') return !!n.err && alertOf(n.err)===a;
+  if(n.t==='S'||n.t==='D') return !!(n.hitKinds&&n.hitKinds.has(a));
+  return true;
+}
 function visible(n){
-  if(st.calc==='err'){ if(n.t==='C') return !!n.err; if(n.t==='S'||n.t==='D') return !!n.hitBy; }
+  if(st.alert) return alertMatch(n) && (!st.q || low(n.name).includes(low(st.q)) || (n.formula && low(n.formula).includes(low(st.q))));
   if(n.t==='C'){ if(st.calc==='used' && !n.used) return false; if(st.calc==='unused' && n.used) return false; }
   if(n.t==='S'){ if(st.calc==='unused' && !n.unused) return false; }
   if(st.q){ const q=low(st.q); if(!low(n.name).includes(q) && !(n.formula && low(n.formula).includes(q))) return false; }
@@ -165,13 +173,13 @@ function columns(){
   const cols=[]; let anc=null;
   COLS.forEach((c,i)=>{
     let items;
-    if(anc) items=upOf(anc,c.k).map(k=>G.N[k]);
-    else items=Object.values(G.N).filter(n=>n.t===c.k && ((c.k!=='C' && c.k!=='S' && !(st.calc==='err' && c.k==='D')) || visible(n)));
+    if(anc) items=upOf(anc,c.k).map(k=>G.N[k]).filter(n=>!st.alert || c.k!=='S' || alertMatch(n));
+    else items=Object.values(G.N).filter(n=>n.t===c.k && ((c.k!=='C' && c.k!=='S' && !(st.alert && (c.k==='D'||c.k==='P'))) || visible(n)));
     items=items.filter(n=>n && (match(n) || st.path[i]===n.k));
     const parentS = anc && anc.startsWith('S:') ? anc : null;
     items.forEach(n=>{ n._direct = parentS && n.t==='C' ? (G.down[n.k]||new Set()).has(parentS) : null; });
     const sevR=n=>n.err?(n.err.sev==='E'?0:2):n.hitBy?1:3;
-    items.sort((a,b)=> (st.calc==='err' ? sevR(a)-sevR(b) : 0) || (a.t==='C' && parentS ? (b._direct-a._direct) : 0) || (a.virtual?1:0)-(b.virtual?1:0) || a.name.localeCompare(b.name,'fr'));
+    items.sort((a,b)=> (st.alert ? sevR(a)-sevR(b) : 0) || (a.t==='C' && parentS ? (b._direct-a._direct) : 0) || (a.virtual?1:0)-(b.virtual?1:0) || a.name.localeCompare(b.name,'fr'));
     cols.push({c, i, items, anc});
     if(st.path[i] && items.some(n=>n.k===st.path[i])) anc=st.path[i];
   });
@@ -284,10 +292,11 @@ function panel(){
     const C=all.filter(x=>x.t==='C'), un=C.filter(c=>!c.used).length, ext=all.filter(x=>x.t==='E'&&x.mode==='extract').length, emb=all.filter(x=>x.t==='E').length, pub=cnt('P');
     h+='<div><div class="eyebrow">Classeur · '+esc(G.W.proj||'')+'</div><h2>'+esc(G.W.name)+'</h2></div>';
     h+='<div class="grid2"><div class="cell"><span>Tableaux de bord</span><b>'+all.filter(x=>x.t==='D'&&!x.virtual).length+'</b></div><div class="cell"><span>Feuilles</span><b>'+cnt('S')+'</b></div><div class="cell"><span>Sources</span><b>'+emb+(pub?' <small style="font-size:12px;color:var(--muted)">dont '+pub+' publiée'+(pub>1?'s':'')+'</small>':'')+'</b></div><div class="cell"><span>Tables BigQuery</span><b>'+cnt('T')+'</b></div><div class="cell"><span>Champs calculés</span><b>'+C.length+'</b></div><div class="cell"><span>Non utilisés</span><b>'+un+'</b></div><div class="cell"><span>Propriétaire</span><b class="sm">'+esc((G.W.own||'—').split('@')[0])+'</b></div><div class="cell"><span>Modifié le</span><b class="sm">'+dfr(G.W.upd)+'</b></div></div>';
-    const BE=G.B.filter(b=>b.sev==='E'), BW=G.B.filter(b=>b.sev!=='E');
-    if(G.B.length){ h+='<div class="sec"><div class="eyebrow" style="color:#9A0016">Erreurs détectées · '+BE.length+(BW.length?' <span style="color:var(--muted);font-weight:500">+ '+BW.length+' champ'+(BW.length>1?'s cassés inutilisés':' cassé inutilisé')+'</span>':'')+'</div><div class="errs">'+
-      G.B.slice(0,40).map((b,i)=>'<button type="button" class="eb '+(b.sev==='E'?'e':'w')+'" data-b="'+i+'">'+errLine(b)+'</button>').join('')+'</div>'+(G.B.length>40?'<p class="hint">40 premières affichées · filtre « En erreur » pour tout voir.</p>':'')+'<p class="hint">Contrôle Metadata API du '+dfr(G.W.chk||'')+'.</p></div>'; }
-    else h+='<ul class="flags"><li class="ok">Aucune erreur détectée sur ce classeur (formules, extraits, alertes qualité).</li></ul>';
+    const GB=G.B.map((b,i)=>Object.assign(b,{_i:i})).filter(b=>!st.alert||alertOf(b)===st.alert);
+    const BE=GB.filter(b=>b.sev==='E'), BW=GB.filter(b=>b.sev!=='E');
+    if(GB.length){ h+='<div class="sec"><div class="eyebrow" style="color:#9A0016">Erreurs détectées · '+BE.length+(BW.length?' <span style="color:var(--muted);font-weight:500">+ '+BW.length+' champ'+(BW.length>1?'s cassés inutilisés':' cassé inutilisé')+'</span>':'')+'</div><div class="errs">'+
+      GB.slice(0,40).map(b=>'<button type="button" class="eb '+(b.sev==='E'?'e':'w')+'" data-b="'+b._i+'">'+errLine(b)+'</button>').join('')+'</div>'+(GB.length>40?'<p class="hint">40 premières affichées · le graphe montre tout.</p>':'')+'<p class="hint">Contrôle Metadata API du '+dfr(G.W.chk||'')+'.</p></div>'; }
+    else h+='<ul class="flags"><li class="ok">'+(st.alert?'Aucune alerte « '+esc(ALABEL[st.alert])+' » sur ce classeur.':'Aucune erreur détectée sur ce classeur (formules, extraits, alertes qualité).')+'</li></ul>';
     const f=[];
     if(G.W.partial) f.push(['', 'Lineage partiel : ce classeur dépasse la limite de la Metadata API (20 000 nœuds).']);
     if(un) f.push(['', un+' champ'+(un>1?'s calculés sont supprimables':' calculé est supprimable')+' sans aucun changement : référencé'+(un>1?'s':'')+' nulle part dans le classeur (feuilles, champs, actions, visibilité dynamique, filtres).']);
@@ -351,7 +360,7 @@ function panel(){
   }
   p.innerHTML=h;
   p.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>select(b.dataset.k));
-  p.querySelectorAll('[data-b]').forEach(b=>b.onclick=()=>{ const e=G.B[+b.dataset.b]; if(e&&e.k){ if(e.sev!=='E'&&st.calc==='used'){ st.calc='all'; syncChips(); } select(e.k); } });
+  p.querySelectorAll('[data-b]').forEach(b=>b.onclick=()=>{ const e=G.B[+b.dataset.b]; if(e&&e.k){ if(e.sev!=='E'&&st.calc==='used'&&!st.alert){ st.calc='all'; syncChips(); } select(e.k); } });
   const bk=$('lBack'); if(bk) bk.onclick=()=>{ st.path={}; st.sel=null; draw(); panel(); focusBar(); };
 }
 function scrollTo(k){ const el=$('lStage').querySelector('[data-k="'+CSS.escape(k)+'"]'); if(el) el.scrollIntoView({block:'center',inline:'nearest',behavior:'smooth'}); }
@@ -362,15 +371,17 @@ function kpis(){
   if(G){ const all=Object.values(G.N), C=all.filter(x=>x.t==='C');
     k.push(['Tableaux de bord',fmt(all.filter(x=>x.t==='D'&&!x.virtual).length)],['Sources',fmt(all.filter(x=>x.t==='E').length)],['Tables BigQuery',fmt(all.filter(x=>x.t==='T').length)],['Champs calculés',fmt(C.length)],['Champs inutilisés',fmt(C.filter(c=>!c.used).length),C.some(c=>!c.used)],['Feuilles inutilisées',fmt(all.filter(x=>x.t==='S'&&x.unused).length),all.some(x=>x.t==='S'&&x.unused)]);
     const ne=G.B.filter(b=>b.sev==='E').length; k.splice(1,0,['Erreurs',fmt(ne),ne>0]); }
-  else { const e=WBS.filter(w=>w.nE>0); k.push(['Classeurs en erreur',fmt(e.length),e.length>0],['Erreurs',fmt(e.reduce((a,w)=>a+w.nE,0)),e.length>0]); }
+
   $('lKpis').innerHTML=k.map(([l,v,a])=>'<div class="kpi'+(a?' alert':'')+'"><b>'+v+'</b><span>'+l+'</span></div>').join('');
 }
 function dropList(q){
   const d=$('lDrop'); const ql=low(q);
-  const hits=WBS.filter(w=>!ql || low(w.name).includes(ql) || low(w.proj).includes(ql) || low(w.own).includes(ql));
+  const hits=WBS.filter(w=>(!st.alert || (w.al&&w.al[st.alert])) && (!ql || low(w.name).includes(ql) || low(w.proj).includes(ql) || low(w.own).includes(ql)));
+  if(st.alert) hits.sort((a,b)=>(b.al[st.alert]||0)-(a.al[st.alert]||0));
   if(!hits.length){ d.innerHTML='<div class="none">Aucun classeur trouvé.</div>'; d.hidden=false; return; }
+  if(st.alert){ d.innerHTML='<div class="grp">'+esc(ALABEL[st.alert])+' · '+hits.length+' classeur'+(hits.length>1?'s':'')+'</div>'+hits.slice(0,300).map(w=>'<button type="button" data-w="'+esc(w.id)+'"><span class="nm">'+esc(w.name)+'<small style="color:var(--muted);margin-left:6px">'+esc(w.proj)+'</small></span><span class="eb-n">'+w.al[st.alert]+'</span></button>').join(''); d.hidden=false; d.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{ d.hidden=true; openWb(b.dataset.w); }); return; }
   const groups={}; hits.slice(0,300).forEach(w=>(groups[w.proj||'—']=groups[w.proj||'—']||[]).push(w));
-  d.innerHTML=Object.keys(groups).sort((a,b)=>a.localeCompare(b,'fr')).map(g=>'<div class="grp">'+esc(g)+'</div>'+groups[g].sort((a,b)=>a.name.localeCompare(b.name,'fr')).map(w=>'<button type="button" data-w="'+esc(w.id)+'"><span class="nm">'+esc(w.name)+'</span>'+(w.nE?'<span class="eb-n" title="'+w.nE+' erreur(s)">⚠ '+w.nE+'</span>':'')+'<span class="r">'+esc((w.own||'').split('@')[0])+'</span></button>').join('')).join('')+(hits.length>300?'<div class="none">'+(hits.length-300)+' autres résultats : affinez la recherche.</div>':'');
+  d.innerHTML=Object.keys(groups).sort((a,b)=>a.localeCompare(b,'fr')).map(g=>'<div class="grp">'+esc(g)+'</div>'+groups[g].sort((a,b)=>a.name.localeCompare(b.name,'fr')).map(w=>'<button type="button" data-w="'+esc(w.id)+'"><span class="nm">'+esc(w.name)+'</span>'+(st.alert? '<span class="eb-n">'+w.al[st.alert]+'</span>' : w.nE?'<span class="eb-n" title="'+w.nE+' erreur(s)">⚠ '+w.nE+'</span>':'')+'<span class="r">'+esc((w.own||'').split('@')[0])+'</span></button>').join('')).join('')+(hits.length>300?'<div class="none">'+(hits.length-300)+' autres résultats : affinez la recherche.</div>':'');
   d.hidden=false;
   d.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{ d.hidden=true; openWb(b.dataset.w); });
 }
@@ -389,12 +400,12 @@ async function openWb(id){
 
 /* ---------- démarrage ---------- */
 function mount(){
-  const css=document.createElement('link'); css.rel='stylesheet'; css.href='lineage.css?v=13'; document.head.appendChild(css);
+  const css=document.createElement('link'); css.rel='stylesheet'; css.href='lineage.css?v=14'; document.head.appendChild(css);
   const app=document.createElement('div'); app.className='app lin'; app.id='lin'; app.hidden=true;
   app.innerHTML=
    '<header class="head"><div class="brand"><div class="mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="6" height="5" rx="1.5"/><rect x="15" y="4" width="6" height="5" rx="1.5"/><rect x="9" y="15" width="6" height="5" rx="1.5"/><path d="M6 9v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9M12 13v2"/></svg></div><div><h1>Lineage · Tableau France</h1><p id="lSub">Du tableau de bord aux tables BigQuery</p></div></div><div class="kpis" id="lKpis"></div></header>'+
+   '<div class="lbans" id="lBans" role="group" aria-label="Alertes du site"></div>'+
    '<div class="tools"><label class="picker"><span style="position:absolute;left:-9999px">Choisir un classeur</span><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#93A2B6" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="lPick" type="search" placeholder="Choisir un classeur (nom, projet, propriétaire)…" autocomplete="off"><div class="drop" id="lDrop" hidden></div></label>'+
-   '<button type="button" class="chip chip-err" id="lAlerts" title="Revenir à la liste des erreurs du site">⚠ Alertes du site</button>'+
    '<button type="button" class="focus" id="lFocus" hidden></button>'+
    '<div class="chips" role="group" aria-label="Champs calculés" id="lCalc"></div><span class="sep" aria-hidden="true"></span>'+
    '<label class="search" style="max-width:260px"><span style="position:absolute;left:-9999px">Chercher dans le lineage</span><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#93A2B6" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="lQ" type="search" placeholder="Champ, formule, table…" autocomplete="off"></label></div>'+
@@ -407,28 +418,29 @@ function mount(){
   pick.addEventListener('keydown',e=>{ if(e.key==='Escape') $('lDrop').hidden=true; if(e.key==='Enter'){ const b=$('lDrop').querySelector('[data-w]'); if(b) b.click(); } });
   document.addEventListener('click',e=>{ if(!e.target.closest('.picker')) $('lDrop').hidden=true; });
   $('lQ').addEventListener('input',e=>{ st.q=e.target.value.trim(); draw(); });
-  $('lAlerts').onclick=()=>{ G=null; cur=null; st.path={}; st.sel=null; try{ localStorage.removeItem('lin.wb'); }catch(e){} $('lPick').value=''; $('lWelcome').hidden=false; $('lSub').textContent='Du tableau de bord aux tables BigQuery'; siteAlerts(); kpis(); draw(); panel(); focusBar(); syncChips(); };
   $('lFocus').onclick=()=>{ st.path={}; st.sel=null; draw(); panel(); focusBar(); $('lCanvas').scrollTo({left:0,top:0}); };
 }
 function syncChips(){
-  const ne=G?G.B.length:0;
-  const chips=[['used','Utilisés'],['all','Tout'],['unused','Inutilisés (champs et feuilles)'],['err','En erreur'+(G?' · '+ne:'')]];
-  $('lCalc').innerHTML=chips.map(([k,l])=>'<button type="button" class="chip'+(k==='err'?' chip-err':'')+'" data-c="'+k+'" aria-pressed="'+(st.calc===k)+'">'+l+'</button>').join('');
-  $('lCalc').querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{ st.calc=b.dataset.c; syncChips(); st.path={}; st.sel=null; draw(); panel(); focusBar(); $('lCanvas').scrollTo({left:0,top:0}); });
+  const chips=[['used','Utilisés'],['all','Tout'],['unused','Inutilisés (champs et feuilles)']];
+  $('lCalc').innerHTML=chips.map(([k,l])=>'<button type="button" class="chip" data-c="'+k+'" aria-pressed="'+(st.calc===k&&!st.alert)+'">'+l+'</button>').join('');
+  $('lCalc').querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{ st.calc=b.dataset.c; st.alert=null; bans(); syncChips(); st.path={}; st.sel=null; draw(); panel(); focusBar(); $('lCanvas').scrollTo({left:0,top:0}); });
 }
-/* écran d'accueil : alertes du site */
+/* BAN des alertes du site : cliquer filtre le lineage sur ce type d'alerte */
 let ALLB=[];
-function siteAlerts(){
-  const wl=$('lWelcome'); if(G) return;
-  const E=WBS.filter(w=>w.nE>0).sort((a,b)=>b.nE-a.nE||a.name.localeCompare(b.name,'fr'));
-  const byK={}; ALLB.forEach(b=>{ if(b.sev==='E') byK[b.kind]=(byK[b.kind]||0)+1; });
-  let h='<div class="alerts"><div class="ah"><h3>Alertes du site</h3><p class="hint">Contrôle automatique via la Metadata API'+(WBS[0]&&WBS[0].chk?' du '+dfr(WBS[0].chk):'')+' : formules qui référencent un champ disparu, extraits en échec, avertissements qualité. Choisissez un classeur ci-dessus pour son lineage complet.</p></div>';
-  h+='<div class="acards"><div class="ac"><b>'+E.length+'</b><span>classeurs avec une erreur visible</span></div><div class="ac"><b>'+(byK.ref||0)+'</b><span>champs en erreur utilisés dans des feuilles</span></div><div class="ac"><b>'+(byK.ext||0)+'</b><span>liens classeur → extrait en échec</span></div><div class="ac muted"><b>'+ALLB.filter(b=>b.sev!=='E').length+'</b><span>champs cassés inutilisés (sans impact)</span></div></div>';
-  if(E.length) h+='<table class="atab"><thead><tr><th>Classeur</th><th>Projet</th><th class="n">Erreurs</th><th>Cause</th></tr></thead><tbody>'+E.map(w=>{ const ks=[...new Set(ALLB.filter(b=>b.wb===w.id&&b.sev==='E').map(b=>b.kind))]; return '<tr data-w="'+esc(w.id)+'"><td><b>'+esc(w.name)+'</b><small>'+esc((w.own||'').split('@')[0])+'</small></td><td>'+esc(w.proj)+'</td><td class="n"><span class="eb-n">⚠ '+w.nE+'</span></td><td>'+ks.map(k=>'<span class="pill red">'+esc(KIND[k]||k)+'</span>').join(' ')+'</td></tr>'; }).join('')+'</tbody></table>';
-  else h+='<ul class="flags"><li class="ok">Aucune erreur visible détectée sur le site.</li></ul>';
-  h+='<p class="hint">Cliquez sur un classeur pour voir le champ en cause, sa formule et les feuilles impactées.</p></div>';
-  wl.innerHTML=h; wl.classList.add('wa');
-  wl.querySelectorAll('[data-w]').forEach(tr=>tr.onclick=()=>openWb(tr.dataset.w));
+const ALABEL={refE:'Champs en erreur', refW:'Champs cassés inutilisés', ext:'Extraits en échec', dqw:'Avertissements qualité'};
+const AHINT={refE:'utilisés dans des feuilles : erreur visible', refW:'sans impact, à supprimer', ext:'données figées', dqw:'posés sur une source publiée'};
+function bans(){
+  const el=$('lBans'); if(!el) return;
+  const n={refE:0,refW:0,ext:new Set(),dqw:new Set()}, wb={refE:new Set(),refW:new Set(),ext:new Set(),dqw:new Set()};
+  ALLB.forEach(b=>{ const a=b.kind==='ref'?(b.sev==='E'?'refE':'refW'):b.kind; if(!wb[a]) return; wb[a].add(b.wb); if(a==='ext'||a==='dqw') n[a].add(b.name); else n[a]++; });
+  const sz=x=>typeof x==='number'?x:x.size;
+  const wE=new Set(ALLB.filter(b=>b.sev==='E').map(b=>b.wb)).size;
+  let h='<div class="ban lead"><b>'+fmt(wE)+'</b><span>Classeurs avec une erreur visible</span><small>Contrôle du '+dfr((WBS[0]||{}).chk||'')+'</small></div>';
+  h+=['refE','ext','dqw','refW'].map(a=>'<button type="button" class="ban'+(a==='refW'?' soft':'')+'" data-a="'+a+'" aria-pressed="'+(st.alert===a)+'"><b>'+fmt(sz(n[a]))+'</b><span>'+ALABEL[a]+'</span><small>'+AHINT[a]+' · '+fmt(wb[a].size)+' classeur'+(wb[a].size>1?'s':'')+'</small></button>').join('');
+  el.innerHTML=h;
+  el.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{ st.alert = st.alert===b.dataset.a ? null : b.dataset.a; st.path={}; st.sel=null; bans(); syncChips();
+    draw(); panel(); focusBar(); $('lCanvas').scrollTo({left:0,top:0});
+    if(st.alert && !(WBS.find(w=>w.id===cur)||{al:{}}).al[st.alert]){ const pk=$('lPick'); pk.focus(); dropList(''); } });
 }
 window.LIN_START = async function(){
   mount();
@@ -440,7 +452,8 @@ window.LIN_START = async function(){
     const seen=new Set();
     WBS = rows.filter(r=>r.type==='W' && r.wb!=='__none__' && !seen.has(r.wb) && seen.add(r.wb)).map(r=>{ const [proj,own,upd,,nE,nW,chk]=r.info.split('|'); return {id:r.wb,name:r.name,proj:proj||'',own:own||'',upd:upd||'',nE:+nE||0,nW:+nW||0,chk:chk||''}; });
     ALLB = rows.filter(r=>r.type==='B').map(r=>{ const [sev,kind]=r.info.split('|'); return {wb:r.wb,name:r.name,sev,kind}; });
-    kpis(); panel(); draw(); siteAlerts();
+    const byW={}; WBS.forEach(w=>{ w.al={}; byW[w.id]=w; }); ALLB.forEach(b=>{ const w=byW[b.wb]; if(!w) return; const a=b.kind==='ref'?(b.sev==='E'?'refE':'refW'):b.kind; w.al[a]=(w.al[a]||0)+1; });
+    kpis(); panel(); draw(); bans();
     let last=null; try{ last=localStorage.getItem('lin.wb'); }catch(e){}
     if(last && WBS.some(w=>w.id===last)) openWb(last);
   }catch(e){

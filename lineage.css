@@ -94,3 +94,16 @@ svg.edges path.dim{stroke:#EDF1F6}
 .atab th:nth-child(1){width:42%}.atab th:nth-child(2){width:20%}.atab th:nth-child(3){width:14%}
 .atab td{overflow:hidden;text-overflow:ellipsis}
 .atab .pill{white-space:normal;display:inline-block;margin:1px 0}
+.lbans{display:grid;grid-template-columns:1.1fr repeat(4,1fr);gap:10px;padding:12px 18px 0}
+.lbans .ban{background:var(--bg);border-radius:12px;padding:11px 14px 10px;display:flex;flex-direction:column;gap:1px;min-width:0;border:1px solid transparent;text-align:left;font:inherit}
+.lbans button.ban{cursor:pointer;background:#FFF7F8;border-color:#FFD6DC}
+.lbans button.ban:hover{border-color:#E2001A}
+.lbans button.ban[aria-pressed=true]{background:#E2001A;border-color:#E2001A}
+.lbans button.ban[aria-pressed=true] b,.lbans button.ban[aria-pressed=true] span,.lbans button.ban[aria-pressed=true] small{color:#fff}
+.lbans button.ban.soft{background:var(--bg);border-color:var(--line)}
+.lbans button.ban.soft b{color:var(--ink)}
+.lbans .ban b{font-size:28px;line-height:1.1;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:#E2001A}
+.lbans .ban.lead b{color:var(--ink)}
+.lbans .ban span{font-size:12.5px;font-weight:650;color:var(--ink-2)}
+.lbans .ban small{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:900px){.lbans{grid-template-columns:repeat(2,1fr)}}
