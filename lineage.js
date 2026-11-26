@@ -255,13 +255,13 @@ function errSection(n){
   const b=n.err; if(!b) return '';
   let h='<div class="sec"><div class="eyebrow" style="color:#9A0016">'+(b.sev==='E'?'Erreur':'Anomalie')+' · '+esc(KIND[b.kind]||b.kind)+'</div><ul class="flags">';
   if(b.kind==='ref'){
-    h+='<li>La formule fait référence à '+b.refs.map(r=>'<code>['+esc(r)+']</code>').join(', ')+', '+(b.refs.length>1?'qui n’existent':'qui n’existe')+' pas dans la source « '+esc((G.N[n.dsk]||{}).name||'')+' » ni dans les paramètres du classeur.</li>';
-    h+='<li class="info"><b>Cause probable</b> : champ renommé ou supprimé en amont (colonne BigQuery renommée, champ retiré de la source publiée, ou copie de champ « (copie)_… » supprimée).</li>';
-    h+=b.sev==='E' ? '<li class="info"><b>Effet</b> : les feuilles qui utilisent ce champ, directement ou via un autre calcul, affichent une erreur ou des valeurs vides.</li><li class="ok"><b>Correction</b> : remplacer la référence dans la formule par le nouveau nom du champ, ou restaurer le champ dans la source.</li>'
-                   : '<li class="ok">Aucune feuille ne l’utilise : supprimer le champ suffit.</li>';
+    h+='<li><span>La formule fait référence à '+b.refs.map(r=>'<code>['+esc(r)+']</code>').join(', ')+', '+(b.refs.length>1?'qui n’existent':'qui n’existe')+' pas dans la source « '+esc((G.N[n.dsk]||{}).name||'')+' » ni dans les paramètres du classeur.</span></li>';
+    h+='<li class="info"><span><b>Cause probable</b> : champ renommé ou supprimé en amont (colonne BigQuery renommée, champ retiré de la source publiée, ou copie de champ « (copie)_… » supprimée).</span></li>';
+    h+=b.sev==='E' ? '<li class="info"><span><b>Effet</b> : les feuilles qui utilisent ce champ, directement ou via un autre calcul, affichent une erreur ou des valeurs vides.</span></li><li class="ok"><span><b>Correction</b> : remplacer la référence dans la formule par le nouveau nom du champ, ou restaurer le champ dans la source.</span></li>'
+                   : '<li class="ok"><span>Aucune feuille ne l’utilise : supprimer le champ suffit.</span></li>';
   } else if(b.kind==='ext'){
-    h+='<li>'+esc(b.msg)+'</li><li class="info"><b>Effet</b> : les données de tous les classeurs connectés à cette source restent figées à la dernière actualisation réussie.</li><li class="ok"><b>Correction</b> : vérifier l’erreur dans l’historique des tâches (identifiants, table renommée, quota BigQuery), puis relancer l’actualisation.</li>';
-  } else h+='<li>'+esc(b.msg)+'</li>';
+    h+='<li><span>'+esc(b.msg)+'</span></li><li class="info"><span><b>Effet</b> : les données de tous les classeurs connectés à cette source restent figées à la dernière actualisation réussie.</span></li><li class="ok"><span><b>Correction</b> : vérifier l’erreur dans l’historique des tâches (identifiants, table renommée, quota BigQuery), puis relancer l’actualisation.</span></li>';
+  } else h+='<li><span>'+esc(b.msg)+'</span></li>';
   return h+'</ul></div>';
 }
 function hitSection(n){
