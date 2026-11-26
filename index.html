@@ -214,7 +214,7 @@ const ST = {
   a:{l:'Actif',       d:'consulté sur les 30 derniers jours', c:'var(--s-act)'},
   w:{l:'À surveiller',d:'dernier accès entre 31 et 90 jours',  c:'var(--s-watch)'},
   d:{l:'Dormant',     d:'aucun accès depuis plus de 90 jours', c:'var(--s-dorm)'},
-  n:{l:'Jamais consulté', d:'aucun accès enregistré',           c:'var(--s-never)'}
+  n:{l:'Non consulté (12 mois)', d:'aucune vue consultée sur 12 mois',           c:'var(--s-never)'}
 };
 const ENV = {prod:'Production', dev:'DEV', qual:'QUAL', arch:'Archive'};
 let byId = {}, kids = {}, agg = {}, NOW = Date.now(), loadedAt = null, HAS_USAGE = false;
@@ -243,6 +243,7 @@ function envOf(name){
   if(/(^|[\s_\-\[(])(qual|qualif|recette|preprod|uat)([\s_\-\])]|$)/.test(n)) return 'qual';
   return null;
 }
+let LAST_FROM_EVENTS=false;
 function statusOf(last){
   if(!last) return 'n';
   const d = (NOW-last)/DAY;
@@ -275,26 +276,29 @@ async function readTable(ws){
 async function readUsage(ws){
   const t = await readTable(ws); const cols = t.columns.map(c=>(c.fieldName||'').toLowerCase());
   const ix = (...k) => cols.findIndex(c=>k.some(x=>c.includes(x)));
-  const iId = ix('item id'), i30 = ix('30'), i12 = ix('12');
+  const iId = ix('item id'), i30 = ix('30'), i12 = ix('12'), iLast = ix('event date');
   if(iId<0||i30<0) return null;
+  const tm = x => { const v = x && (x.nativeValue!==undefined?x.nativeValue:x.value); return toTime(v); };
   const num = x => { const v = x && (x.nativeValue!==undefined?x.nativeValue:x.value); const n = Number(v); return isNaN(n)?0:n; };
-  const m = {}; t.data.forEach(r=>{ const id=num(r[iId]); m[id] = [num(r[i30]), i12<0?null:num(r[i12])]; });
+  const m = {}; t.data.forEach(r=>{ const id=num(r[iId]); m[id] = [num(r[i30]), i12<0?null:num(r[i12]), iLast<0?null:tm(r[iLast])]; });
+  m.__hasLast = iLast>=0;
   return m;
 }
 function build({rows, v, I}, usage){
   byId = {}; kids = {}; agg = {}; NOW = Date.now();
   const add = o => { byId[o.id]=o; (kids[o.parent]=kids[o.parent]||[]).push(o.id); };
   byId[ROOT] = {id:ROOT, name:'Site france', type:'p', parent:null, env:null};
-  const sheets = {}, wbs = [], projs = [], v30 = {}, v12 = {}; HAS_USAGE = !!usage;
+  const sheets = {}, wbs = [], projs = [], v30 = {}, v12 = {}, lv = {}; HAS_USAGE = !!usage; LAST_FROM_EVENTS = !!(usage && usage.__hasLast);
   rows.forEach(r=>{
     const t = String(v(r,I.type)||'').toLowerCase();
-    if(t==='view'){ const w=v(r,I.vwb); if(w!=null){ const k='w'+w; sheets[k]=(sheets[k]||0)+1; if(usage){ const u=usage[Number(v(r,I.id))]; if(u){ v30[k]=(v30[k]||0)+u[0]; v12[k]=(v12[k]||0)+(u[1]||0); } } } }
+    if(t==='view'){ const w=v(r,I.vwb); if(w!=null){ const k='w'+w; sheets[k]=(sheets[k]||0)+1; if(usage){ const u=usage[Number(v(r,I.id))]; if(u){ v30[k]=(v30[k]||0)+u[0]; v12[k]=(v12[k]||0)+(u[1]||0); if(u[2] && (!lv[k]||u[2]>lv[k])) lv[k]=u[2]; } } } }
     else if(t==='project') projs.push(r); else if(t==='workbook') wbs.push(r);
   });
   projs.forEach(r=>{ const par=v(r,I.parent); const name=String(v(r,I.name)||'(sans nom)').trim();
     add({id:'p'+v(r,I.id), name, type:'p', parent: par==null?ROOT:'p'+par, owner:v(r,I.owner)||'', env:envOf(name)}); });
   let perso = false;
-  wbs.forEach(r=>{ const par=v(r,I.parent); const id='w'+v(r,I.id); const last=toTime(v(r,I.last));
+  wbs.forEach(r=>{ const par=v(r,I.parent); const id='w'+v(r,I.id); // dernière consultation réelle d'une vue (TS Events « Access View ») : un téléchargement ou un accès API ne compte pas
+    const last = LAST_FROM_EVENTS ? (lv[id]||null) : toTime(v(r,I.last));
     if(par==null) perso = true;
     add({id, name:String(v(r,I.name)||'(sans nom)').trim(), type:'w', parent: par==null?PERSO:'p'+par, owner:v(r,I.owner)||'', link:v(r,I.link)||'', last, upd:toTime(v(r,I.upd)), sheets:sheets[id]||0, v30:v30[id]||0, v12:v12[id]||0, st:statusOf(last)}); });
   if(perso) add({id:PERSO, name:'Espaces personnels', type:'p', parent:ROOT, env:null, virtual:true});
@@ -445,7 +449,7 @@ function panel(){
     const cand=list.filter(w=>(w.st==='d'||w.st==='n') && (!w.upd || (NOW-w.upd)/DAY>90)).sort((x,y)=>(x.last||0)-(y.last||0));
     const f=[];
     if(!s.wb) f.push(['info', n.id===ROOT?'Aucun classeur.':'Projet vide : aucun classeur, '+subs+' sous-projet'+(subs>1?'s':'')+'. À supprimer ou à documenter.']);
-    if(s.n) f.push(['warn', fmt(s.n)+' classeur'+(s.n>1?'s':'')+' jamais consulté'+(s.n>1?'s':'')+'.']);
+    if(s.n) f.push(['warn', fmt(s.n)+' classeur'+(s.n>1?'s':'')+' sans aucune consultation sur 12 mois.']);
     if(s.d) f.push(['warn', fmt(s.d)+' classeur'+(s.d>1?'s':'')+' sans accès depuis plus de 90 jours.']);
     if(cand.length) f.push(['warn', fmt(cand.length)+' candidat'+(cand.length>1?'s':'')+' à l’archivage (dormant ou jamais vu, non modifié depuis 90 jours).']);
     const np=list.filter(w=>w.envEff!=='prod'); if(np.length && n.envEff==='prod') f.push(['info', fmt(np.length)+' classeur'+(np.length>1?'s':'')+' dans des sous-projets DEV, QUAL ou Archive.']);
@@ -468,7 +472,7 @@ function panel(){
   } else {
     const days = n.last ? Math.floor((NOW-n.last)/DAY) : null;
     const f=[];
-    if(n.st==='n') f.push(['warn','Jamais consulté depuis sa publication.']);
+    if(n.st==='n') f.push(['warn','Aucune vue consultée sur les 12 derniers mois.']);
     if(n.st==='d') f.push(['warn','Aucun accès depuis '+days+' jours.']);
     if((n.st==='d'||n.st==='n') && (!n.upd || (NOW-n.upd)/DAY>90)) f.push(['warn','Candidat à l’archivage : inactif et non modifié depuis plus de 90 jours.']);
     if(n.envEff!=='prod') f.push(['info','Situé dans un espace '+ENV[n.envEff]+' : vérifier qu’il n’est pas diffusé aux utilisateurs métier.']);
@@ -479,7 +483,7 @@ function panel(){
     h+='<div><div class="eyebrow">Classeur · '+ENV[n.envEff]+'</div><h2>'+esc(n.name)+'</h2></div>';
     h+='<div class="path">'+path+'</div>';
     h+='<div><span class="tag" style="background:#F1F4F8;color:var(--ink-2)"><span class="dot" style="background:'+ST[n.st].c+'"></span>'+ST[n.st].l+' · '+ST[n.st].d+'</span></div>';
-    h+='<div class="grid2"><div class="cell"><span>Dernier accès</span><b class="sm">'+(n.last?dfr(n.last)+' ('+ageTxt(n)+')':'jamais')+'</b></div><div class="cell"><span>Dernière modification</span><b class="sm">'+dfr(n.upd)+'</b></div>'
+    h+='<div class="grid2"><div class="cell"><span>Dernière consultation</span><b class="sm">'+(n.last?dfr(n.last)+' ('+ageTxt(n)+')':'jamais')+'</b></div><div class="cell"><span>Dernière modification</span><b class="sm">'+dfr(n.upd)+'</b></div>'
       +(HAS_USAGE?'<div class="cell"><span>Consultations 30 j</span><b>'+fmt(n.v30)+'</b></div><div class="cell"><span>Consultations 12 mois</span><b>'+fmt(n.v12)+'</b></div>':'')
       +'<div class="cell"><span>Feuilles</span><b>'+n.sheets+'</b></div><div class="cell"><span>Niveau</span><b>'+a.length+'</b></div>'
       +'<div class="cell" style="grid-column:1/-1"><span>Propriétaire</span><b class="sm">'+esc(n.owner||'—')+'</b></div></div>';
