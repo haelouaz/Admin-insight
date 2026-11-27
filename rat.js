@@ -45,7 +45,7 @@ function buOf(path){
     if(/^magasin/i.test(l2)) return {bu:'Magasin', sub:'Siège › '+sub(l3)};
     return null;
   }
-  if(/^magasin/i.test(top)) return {bu:'Magasin', sub:sub(l2)};
+  if(/^magasin/i.test(top)) return /new carrefour/i.test(l2) ? null : {bu:'Magasin', sub:sub(l2)};
   if(/^entrep/i.test(top)) return {bu:'Supply', sub:'Entrepôt › '+sub(l2)};
   return null;
 }
