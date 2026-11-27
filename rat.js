@@ -152,6 +152,13 @@ function mount(){
     '<div class="main"><div class="canvas" id="raMain" style="padding:16px 18px;display:block;overflow-x:hidden"></div><aside class="panel" id="raPanel" aria-live="polite"></aside></div>';
   document.body.appendChild(app);
 }
+/* synthèse transmise uniquement à Tableau Cloud, sur demande (préparation de la note de constat) */
+function summary(){
+  return {at:new Date().toISOString(), regles:R, bu:Object.values(BU).sort((a,b)=>b.users.size-a.users.size).map(b=>({bu:b.name, prod:b.prod.length, nonprod:b.nonprod.length, stale:b.stale.length, users90:b.users.size, users30:b.users30.size, v30:b.v30, v12:b.v12, owners:b.owners.size, cnt:b.cnt, cov:b.cov, gap:b.gap,
+    reg:b.reg.map(w=>({n:w.name,p:w.proj,u90:w.nu90,u30:w.nu30,v30:w.v30,v12:w.v12})), met:b.prod.filter(w=>w.cat==='met').sort((x,y)=>y.nu90-x.nu90).slice(0,8).map(w=>({n:w.name,u90:w.nu90,v30:w.v30})),
+    fam:b.fam.map(f=>f.map(w=>w.name)), chantiers:b.chantiers.map(c=>c.t)})), site:{prod:WB.filter(w=>w.env==='prod').length, nonprod:WB.filter(w=>w.env!=='prod').length, users90:ALLU.size}};
+}
+window.addEventListener('message', e=>{ if(e.origin==='https://dub01.online.tableau.com' && e.data && e.data.ratSummary==='get' && WB.length) e.source.postMessage({ratSummary:summary()}, e.origin); });
 window.RAT_START = async function(){
   mount(); await load(); bans(); main(); panel();
   $('raQ').addEventListener('input',e=>{ st.q=e.target.value.trim(); main(); });
